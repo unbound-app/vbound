@@ -9,9 +9,13 @@ import SwiftUI
 
 @main
 struct vboundApp: App {
+    @State private var manager = AppController()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(manager)
         }
+        .windowResizability(.contentSize)
     }
 }

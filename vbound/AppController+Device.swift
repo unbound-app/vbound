@@ -1,0 +1,30 @@
+import AppKit
+
+extension AppController {
+
+    func bootVphone(in directory: String) {
+        let dirPath = (directory as NSString).expandingTildeInPath
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        p.arguments = ["-l", "-c",
+                       "cd '\(dirPath)' && nohup make boot > /dev/null 2>&1 & disown $!"]
+        try? p.run()
+    }
+
+    func shutdownVphone() {
+        Task {
+            let (udid, _) = await resolveVphoneUDID()
+            guard let udid else { return }
+            _ = await run(args: ["idevicediagnostics", "shutdown", "-u", udid])
+        }
+    }
+
+    func launchDiscord() {
+        Task {
+            if !isStreaming { startLogStream() }
+            await ensurePortForward()
+            _ = await run(ssh: "echo 'alpine' | sudo -S killall -9 Discord; "
+                             + "uiopen --bundleid com.hammerandchisel.discord")
+        }
+    }
+}
