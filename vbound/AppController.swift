@@ -16,6 +16,8 @@ final class AppController {
     var isStreaming      = false
     var shellLines:      [String] = []
     var isShellConnected = false
+    var bootedVphone     = false
+    var vphoneUDID:      String? = nil
 
     // MARK: - Internal state (accessible from extension files)
 
@@ -24,6 +26,7 @@ final class AppController {
     var logStreamTask:    Task<Void, Never>?
     var shellProcess:     Process?
     var shellInputHandle: FileHandle?
+    var terminatingDelegate: TerminatingWindowDelegate?
 
     // MARK: - Private state (window attachment only)
 

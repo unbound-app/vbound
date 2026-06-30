@@ -18,6 +18,7 @@ struct ContentView: View {
     @State private var showShutdownConfirm  = false
     @State private var shellInput           = ""
     @State private var shellScrollVersion   = 0
+    @FocusState private var shellInputFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,6 +40,17 @@ struct ContentView: View {
                 window.level = .floating
                 window.collectionBehavior = [.canJoinAllSpaces, .transient]
                 manager.ourWindow = window
+                // Replace window delegate with a proxy that quits on close.
+                // windowShouldClose intercepts SwiftUI's hide-instead-of-close behaviour;
+                // the close button target-action is a belt-and-suspenders backup.
+                let quitDelegate = TerminatingWindowDelegate()
+                quitDelegate.originalDelegate = window.delegate
+                quitDelegate.controller = manager
+                manager.terminatingDelegate = quitDelegate
+                window.delegate = quitDelegate
+                window.standardWindowButton(.closeButton)?.target = quitDelegate
+                window.standardWindowButton(.closeButton)?.action =
+                    #selector(TerminatingWindowDelegate.closeWindow(_:))
                 manager.start()
             }
         )
@@ -330,9 +342,9 @@ struct ContentView: View {
                         }
                         Color.clear.frame(height: 1).id("logBottom")
                     }
+                    .textSelection(.enabled)
                     .frame(minWidth: cardSize.width - 16, alignment: .leading)
                 }
-                .textSelection(.enabled)
                 .onChange(of: scrollVersion) { _, _ in
                     withAnimation { proxy.scrollTo("logBottom", anchor: .bottomLeading) }
                 }
@@ -452,21 +464,22 @@ struct ContentView: View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView([.vertical, .horizontal]) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(manager.shellLines.enumerated()), id: \.offset) { _, line in
-                            Text(line.isEmpty ? " " : line)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(Color.white)
-                                .frame(minWidth: cardSize.width - 32, alignment: .leading)
-                                .padding(.horizontal, 8)
-                        }
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(manager.shellLines.map { $0.isEmpty ? " " : $0 }.joined(separator: "\n"))
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(Color.white)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: true, vertical: true)
+                            .frame(minWidth: cardSize.width - 32, alignment: .topLeading)
+                            .padding(.horizontal, 8)
                         Color.clear.frame(height: 1).id("shellBottom")
                     }
                     .padding(.vertical, 4)
                 }
-                .textSelection(.enabled)
                 .background(Color.black)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .onTapGesture { shellInputFocused = true }
                 .onChange(of: manager.shellLines.count) { _, _ in
                     withAnimation { proxy.scrollTo("shellBottom", anchor: .bottomLeading) }
                 }
@@ -485,6 +498,7 @@ struct ContentView: View {
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(Color.white)
                     .textFieldStyle(.plain)
+                    .focused($shellInputFocused)
                     .onSubmit {
                         manager.sendShellInput(shellInput)
                         shellInput = ""

@@ -150,7 +150,10 @@ extension AppController {
             let productType = (device["ProductType"] as? String) ?? ""
             guard !identifier.isEmpty else { continue }
             diag.append(hdr("   \(identifier)  →  \(productType.isEmpty ? "(no response)" : productType)"))
-            if productType == "iPhone99,11" { return (identifier, []) }
+            if productType == "iPhone99,11" {
+                DispatchQueue.main.async { self.vphoneUDID = identifier }
+                return (identifier, [])
+            }
         }
         diag.append(err("no iPhone99,11 found among connected devices"))
         return (nil, diag)

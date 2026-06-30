@@ -6,6 +6,10 @@
 	objectVersion = 110;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		3AC3492A2FF46B92006A1959 /* AppUpdater in Frameworks */ = {isa = PBXBuildFile; productRef = 3AC349292FF46B92006A1959 /* AppUpdater */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		3A70EE592FEDF322003EE09D /* vbound.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vbound.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -22,6 +26,7 @@
 		3A70EE562FEDF322003EE09D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				3AC3492A2FF46B92006A1959 /* AppUpdater in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -60,6 +65,9 @@
 				3A70EE5B2FEDF322003EE09D /* vbound */,
 			);
 			name = vbound;
+			packageProductDependencies = (
+				3AC349292FF46B92006A1959 /* AppUpdater */,
+			);
 			productName = vbound;
 			productReference = 3A70EE592FEDF322003EE09D /* vbound.app */;
 			productType = "com.apple.product-type.application";
@@ -88,6 +96,9 @@
 			);
 			mainGroup = 3A70EE502FEDF322003EE09D;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				3AC349282FF46B92006A1959 /* XCRemoteSwiftPackageReference "AppUpdater" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3A70EE5A2FEDF322003EE09D /* Products */;
 			projectDirPath = "";
@@ -321,6 +332,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		3AC349282FF46B92006A1959 /* XCRemoteSwiftPackageReference "AppUpdater" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/s1ntoneli/AppUpdater.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		3AC349292FF46B92006A1959 /* AppUpdater */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3AC349282FF46B92006A1959 /* XCRemoteSwiftPackageReference "AppUpdater" */;
+			productName = AppUpdater;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 3A70EE512FEDF322003EE09D /* Project object */;
 	validationLevel = 1;

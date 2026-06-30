@@ -3,6 +3,7 @@ import AppKit
 extension AppController {
 
     func bootVphone(in directory: String) {
+        bootedVphone = true
         let dirPath = (directory as NSString).expandingTildeInPath
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")

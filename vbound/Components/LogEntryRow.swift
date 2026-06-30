@@ -46,22 +46,21 @@ struct LogEntryRow: View {
                     .padding(.vertical, 3)
             } else {
                 HStack(alignment: .top, spacing: 6) {
-                    // Timestamp: shows HH:MM:SS, click for a small popup with full precision
-                    Button { showTimestamp.toggle() } label: {
-                        Text(String(entry.time.prefix(8)))
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .frame(width: 58, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
-                    .popover(isPresented: $showTimestamp, arrowEdge: .bottom) {
-                        Text(entry.time)
-                            .font(.system(size: 13, design: .monospaced))
-                            .foregroundStyle(.primary)
-                            .padding(10)
-                            .background(Color(.textBackgroundColor))
-                    }
+                    // Timestamp: shows HH:MM:SS, click for a small popup with full precision.
+                    // Uses simultaneousGesture instead of Button so drag-to-select still works.
+                    Text(String(entry.time.prefix(8)))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .frame(width: 58, alignment: .leading)
+                        .simultaneousGesture(TapGesture().onEnded { showTimestamp.toggle() })
+                        .popover(isPresented: $showTimestamp, arrowEdge: .bottom) {
+                            Text(entry.time)
+                                .font(.system(size: 13, design: .monospaced))
+                                .foregroundStyle(.primary)
+                                .padding(10)
+                                .background(Color(.textBackgroundColor))
+                        }
 
                     // Level pill — transparent placeholder when empty keeps column alignment
                     Text(entry.level.isEmpty ? "   " : entry.level)
@@ -81,27 +80,26 @@ struct LogEntryRow: View {
                         .lineLimit(1)
                         .frame(width: 106, alignment: .leading)
 
-                    // Structured-data badge — comes BEFORE the message text, left-click to open
+                    // Structured-data badge — comes BEFORE the message text, left-click to open.
+                    // Uses simultaneousGesture instead of Button so drag-to-select still works.
                     if hasBadge {
-                        Button { showPopover.toggle() } label: {
-                            Text("{}")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .foregroundStyle(.purple)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 2)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 3)
-                                        .fill(Color.purple.opacity(0.12))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 3)
-                                                .strokeBorder(Color.purple.opacity(0.35), lineWidth: 0.5)
-                                        )
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .popover(isPresented: $showPopover, arrowEdge: .bottom) {
-                            popoverContent
-                        }
+                        Text("{}")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.purple)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.purple.opacity(0.12))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 3)
+                                            .strokeBorder(Color.purple.opacity(0.35), lineWidth: 0.5)
+                                    )
+                            )
+                            .simultaneousGesture(TapGesture().onEnded { showPopover.toggle() })
+                            .popover(isPresented: $showPopover, arrowEdge: .bottom) {
+                                popoverContent
+                            }
                     }
 
                     // Message text (content varies by detection result)

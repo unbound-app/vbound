@@ -1,0 +1,33 @@
+{
+  "originHash" : "1b1cab8834e7afb94565e5280644d740e24068c129fd302912cc7c4ba4530377",
+  "pins" : [
+    {
+      "identity" : "appupdater",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/s1ntoneli/AppUpdater.git",
+      "state" : {
+        "revision" : "0f280e4ecf2792f9be4bf4cbab76307d78024b3f",
+        "version" : "2.0.0"
+      }
+    },
+    {
+      "identity" : "path.swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mxcl/Path.swift.git",
+      "state" : {
+        "revision" : "74ec90bbe50a3376e399286fed48b60db9b91bb1",
+        "version" : "1.6.0"
+      }
+    },
+    {
+      "identity" : "version",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mxcl/Version.git",
+      "state" : {
+        "revision" : "3043fcd2a50375db76d89ff206a612471833d1c2",
+        "version" : "2.2.1"
+      }
+    }
+  ],
+  "version" : 3
+}

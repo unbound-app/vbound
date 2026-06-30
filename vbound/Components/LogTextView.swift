@@ -33,12 +33,40 @@ final class LogLayoutManager: NSLayoutManager {
     }
 }
 
-// MARK: - NSTextView subclass — right-click "View as JSON…"
+// MARK: - NSTextView subclass — left-click JSON popup + right-click context menu
 
 final class LogNSTextView: NSTextView {
     var entryRanges: [(range: NSRange, entry: LogEntry)] = []
     var onShowJSON:  ((String, NSView) -> Void)?
 
+    private var wasDragging = false
+
+    // Track drags so a single click doesn't falsely trigger the JSON popup.
+    override func mouseDragged(with event: NSEvent) {
+        wasDragging = true
+        super.mouseDragged(with: event)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        wasDragging = false
+        super.mouseDown(with: event)
+    }
+
+    // Left single-click on a JSON entry → show popup.
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        guard event.clickCount == 1, !wasDragging else { return }
+        let pt  = convert(event.locationInWindow, from: nil)
+        let idx = characterIndex(for: pt)
+        guard idx != NSNotFound,
+              let hit  = entryRanges.first(where: { NSLocationInRange(idx, $0.range) }),
+              !hit.entry.isHeader,
+              let json = jsonPretty(hit.entry.message)
+        else { return }
+        onShowJSON?(json, self)
+    }
+
+    // Right-click context menu keeps "View as JSON…" for discoverability.
     override func menu(for event: NSEvent) -> NSMenu? {
         let base = super.menu(for: event) ?? NSMenu()
         let pt   = convert(event.locationInWindow, from: nil)
@@ -105,11 +133,14 @@ struct LogTextView: NSViewRepresentable {
         sv.borderType            = .noBorder
 
         // Build a custom text stack so we can inject LogLayoutManager.
+        // Use an unlimited-width container (widthTracksTextView = false) so the text
+        // view expands to fit content rather than wrapping at the viewport width.
+        // This avoids a zero-width layout when the view is first created (frame: .zero).
         let ts = NSTextStorage()
         let lm = LogLayoutManager()
-        let tc = NSTextContainer(size: NSSize(width: 10_000,
+        let tc = NSTextContainer(size: NSSize(width:  CGFloat.greatestFiniteMagnitude,
                                               height: CGFloat.greatestFiniteMagnitude))
-        tc.widthTracksTextView = true
+        tc.widthTracksTextView = false
         lm.addTextContainer(tc)
         ts.addLayoutManager(lm)
 
@@ -119,8 +150,7 @@ struct LogTextView: NSViewRepresentable {
         tv.drawsBackground         = false
         tv.textContainerInset      = NSSize(width: 8, height: 6)
         tv.isVerticallyResizable   = true
-        tv.isHorizontallyResizable = false
-        tv.autoresizingMask        = [.width]
+        tv.isHorizontallyResizable = true
         tv.maxSize                 = NSSize(width:  CGFloat.greatestFiniteMagnitude,
                                             height: CGFloat.greatestFiniteMagnitude)
 
