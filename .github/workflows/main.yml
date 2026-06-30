@@ -29,6 +29,11 @@ jobs:
                   bundle-identifier: dev.adrian.vbound
                   certificate-type: DEVELOPER_ID
 
+            - name: Set up .NET runtime
+              uses: actions/setup-dotnet@v4
+              with:
+                  dotnet-version: "8.0.x"
+
             - name: Install Signing Assets
               uses: maui-actions/apple-provisioning@v4
               with:
