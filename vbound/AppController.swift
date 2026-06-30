@@ -12,14 +12,18 @@ final class AppController {
     var buildPhase: BuildPhase = .idle
     var buildLog:   String = ""
     var buildProgress: Double = 0
-    var logLines:   [LogEntry] = []
-    var isStreaming = false
+    var logLines:        [LogEntry] = []
+    var isStreaming      = false
+    var shellLines:      [String] = []
+    var isShellConnected = false
 
     // MARK: - Internal state (accessible from extension files)
 
-    weak var ourWindow:  NSWindow?
-    var forwardProcess:  Process?
-    var logStreamTask:   Task<Void, Never>?
+    weak var ourWindow:   NSWindow?
+    var forwardProcess:   Process?
+    var logStreamTask:    Task<Void, Never>?
+    var shellProcess:     Process?
+    var shellInputHandle: FileHandle?
 
     // MARK: - Private state (window attachment only)
 

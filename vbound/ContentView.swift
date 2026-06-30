@@ -13,9 +13,11 @@ struct ContentView: View {
     @State private var showERR           = true
     @State private var showDBG           = true
     @State private var highlightStartIdx = -1
-    @State private var activeSubsystem   : LogSubsystem = .unbound
+    @State private var activeTab         : LogTab = .unbound
     @State private var scrollVersion        = 0
     @State private var showShutdownConfirm  = false
+    @State private var shellInput           = ""
+    @State private var shellScrollVersion   = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -189,21 +191,42 @@ struct ContentView: View {
     @ViewBuilder
     private var logsSection: some View {
         VStack(spacing: 0) {
-            logToolbar
+            // Cross-fade between log and shell toolbars
+            ZStack(alignment: .leading) {
+                logToolbar
+                    .opacity(activeTab == .shell ? 0 : 1)
+                    .allowsHitTesting(activeTab != .shell)
+                shellToolbar
+                    .opacity(activeTab == .shell ? 1 : 0)
+                    .allowsHitTesting(activeTab == .shell)
+            }
+            .animation(.easeInOut(duration: 0.25), value: activeTab == .shell)
 
             Divider()
 
             HStack(spacing: 10) {
-                ForEach(LogSubsystem.allCases, id: \.self) { sys in
-                    subsystemButton(sys)
-                }
+                tabButton(.unbound,     icon: "puzzlepiece.extension",                   label: "Unbound")
+                tabButton(.reactNative, icon: "chevron.left.forwardslash.chevron.right", label: "React Native")
+                tabButton(.shell,       icon: "terminal",                                label: "Shell")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 7)
 
             Divider()
 
-            logScrollView
+            // Cross-fade between log and shell content
+            ZStack {
+                logScrollView
+                    .opacity(activeTab == .shell ? 0 : 1)
+                    .allowsHitTesting(activeTab != .shell)
+                shellView
+                    .opacity(activeTab == .shell ? 1 : 0)
+                    .allowsHitTesting(activeTab == .shell)
+            }
+            .animation(.easeInOut(duration: 0.25), value: activeTab == .shell)
+        }
+        .onChange(of: activeTab) { _, new in
+            if new == .shell, !manager.isShellConnected { manager.connectShell() }
         }
     }
 
@@ -321,28 +344,26 @@ struct ContentView: View {
     // MARK: - Helpers
 
     @ViewBuilder
-    private func subsystemButton(_ sys: LogSubsystem) -> some View {
-        if activeSubsystem == sys {
-            Button { activeSubsystem = sys } label: {
-                Text(sys.label).frame(maxWidth: .infinity)
+    private func tabButton(_ tab: LogTab, icon: String, label: String) -> some View {
+        if activeTab == tab {
+            Button { activeTab = tab } label: {
+                Label(label, systemImage: icon).frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
         } else {
-            Button { activeSubsystem = sys } label: {
-                Text(sys.label).frame(maxWidth: .infinity)
+            Button { activeTab = tab } label: {
+                Label(label, systemImage: icon).frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
         }
     }
 
     private var filteredEntries: [LogEntry] {
-        manager.logLines.filter { entry in
+        guard activeTab != .shell else { return [] }
+        let target: LogSubsystem = activeTab == .unbound ? .unbound : .reactNative
+        return manager.logLines.filter { entry in
             if entry.isHeader { return true }
-
-            if let entrySubsystem = entry.subsystem, entrySubsystem != activeSubsystem {
-                return false
-            }
-
+            if let sub = entry.subsystem, sub != target { return false }
             let levelPass: Bool
             switch entry.level {
             case "INF": levelPass = showINF
@@ -351,9 +372,137 @@ struct ContentView: View {
             default:    levelPass = true
             }
             guard levelPass else { return false }
-
             return logSearch.isEmpty || entry.asString().localizedCaseInsensitiveContains(logSearch)
         }
+    }
+
+    // MARK: - Shell toolbar + view
+
+    @ViewBuilder
+    private var shellToolbar: some View {
+        HStack(spacing: 8) {
+            // SSH target — expands like the log search field
+            HStack(spacing: 5) {
+                Image(systemName: "terminal")
+                    .foregroundStyle(.tertiary)
+                    .font(.system(size: 12))
+                Text(manager.isShellConnected ? "mobile@127.0.0.1:2222" : "not connected")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(Color(.controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            Group {
+                Button { manager.sendShellInterrupt() } label: {
+                    Image(systemName: "stop.circle")
+                }
+                .help("Send Ctrl+C (interrupt)")
+                .disabled(!manager.isShellConnected)
+
+                Divider().frame(height: 16)
+
+                Button { shellScrollVersion += 1 } label: {
+                    Image(systemName: "arrow.down.to.line")
+                }
+                .help("Scroll to bottom")
+
+                Button { copyShellOutput() } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .help("Copy shell output to clipboard")
+
+                Button {
+                    manager.shellLines = []
+                    if manager.isShellConnected { manager.sendShellInput("") }
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .help("Clear terminal output")
+            }
+            .buttonStyle(.borderless)
+            .font(.system(size: 14))
+
+            Divider().frame(height: 16)
+
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(manager.isShellConnected ? Color.green : Color.secondary.opacity(0.35))
+                    .frame(width: 8, height: 8)
+                    .animation(.easeInOut(duration: 0.25), value: manager.isShellConnected)
+                Button(manager.isShellConnected ? "Disconnect" : "Connect") {
+                    if manager.isShellConnected { manager.disconnectShell() }
+                    else                        { manager.connectShell() }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(manager.isShellConnected ? .red : Color.accentColor)
+                .help(manager.isShellConnected ? "Disconnect SSH session" : "Connect SSH session")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 9)
+    }
+
+    @ViewBuilder
+    private var shellView: some View {
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView([.vertical, .horizontal]) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(manager.shellLines.enumerated()), id: \.offset) { _, line in
+                            Text(line.isEmpty ? " " : line)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(Color.white)
+                                .frame(minWidth: cardSize.width - 32, alignment: .leading)
+                                .padding(.horizontal, 8)
+                        }
+                        Color.clear.frame(height: 1).id("shellBottom")
+                    }
+                    .padding(.vertical, 4)
+                }
+                .textSelection(.enabled)
+                .background(Color.black)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onChange(of: manager.shellLines.count) { _, _ in
+                    withAnimation { proxy.scrollTo("shellBottom", anchor: .bottomLeading) }
+                }
+                .onChange(of: shellScrollVersion) { _, _ in
+                    withAnimation { proxy.scrollTo("shellBottom", anchor: .bottomLeading) }
+                }
+            }
+
+            Divider()
+
+            HStack(spacing: 6) {
+                Text("›")
+                    .font(.system(size: 14, design: .monospaced))
+                    .foregroundStyle(Color.green.opacity(0.8))
+                TextField("", text: $shellInput)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Color.white)
+                    .textFieldStyle(.plain)
+                    .onSubmit {
+                        manager.sendShellInput(shellInput)
+                        shellInput = ""
+                    }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Color(white: 0.1))
+            .environment(\.colorScheme, .dark)
+        }
+    }
+
+    private func copyShellOutput() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(
+            manager.shellLines.joined(separator: "\n"),
+            forType: .string
+        )
     }
 
     private func copyLogs() {

@@ -27,18 +27,6 @@ extension AppController {
 
             var lastMach: Double = 0
 
-            let hintTask = Task { [weak self] in
-                guard let self else { return }
-                try? await Task.sleep(for: .seconds(8))
-                guard !Task.isCancelled else { return }
-                DispatchQueue.main.async {
-                    guard self.isStreaming, self.logLines.count <= 1 else { return }
-                    self.logLines.append(LogEntry(time: "", level: "", source: "vbound",
-                        message: "no app.unbound / facebook.react logs yet — is Discord with Unbound running?",
-                        subsystem: nil))
-                }
-            }
-
             while !Task.isCancelled {
                 let startTime = Int(Date().timeIntervalSince1970) - 5
                 let events = await self.collectLogEvents(udid: udid, startTime: startTime)
@@ -50,7 +38,6 @@ extension AppController {
                 if let newest = fresh.last?["machTimestamp"] as? Double { lastMach = newest }
 
                 if !fresh.isEmpty {
-                    hintTask.cancel()
                     let entries = fresh.compactMap { self.makeLogEntry($0) }
                     if !entries.isEmpty {
                         DispatchQueue.main.async {
@@ -65,7 +52,6 @@ extension AppController {
                 do { try await Task.sleep(for: .seconds(1)) } catch { break }
             }
 
-            hintTask.cancel()
             DispatchQueue.main.async { [weak self] in self?.isStreaming = false }
         }
     }

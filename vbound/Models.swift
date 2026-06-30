@@ -1,5 +1,9 @@
 import Foundation
 
+enum LogTab: Equatable {
+    case unbound, reactNative, shell
+}
+
 enum LogSubsystem: String, CaseIterable {
     case unbound     = "app.unbound"
     case reactNative = "com.facebook.react.log"
