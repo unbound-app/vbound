@@ -369,7 +369,7 @@ struct ContentView: View {
 
     private var statusText: String {
         if manager.isAttached     { return "Attached · vphone running" }
-        if manager.vphoneDetected { return "vphone detected" }
+        if manager.vphoneDetected { return "vphone running" }
         return "vphone not running"
     }
 }

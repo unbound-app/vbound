@@ -5,14 +5,13 @@
 
 macOS floating panel that attaches to the vphone window and streamlines Unbound development: boot the virtual device, build and deploy the tweak over SSH, and stream live device logs.
 
-![](https://adriancastro.dev/alfhw308jsxe.png)
+![vbound panel attached to vphone](https://adriancastro.dev/alfhw308jsxe.png)
 
 ## Requirements
 
 - macOS 26+
 - [vphone-cli](https://github.com/nickcoutsos/vphone) — virtual iPhone environment
 - [loader-ios](https://github.com/unbound-app/loader-ios) — Unbound tweak source
-- [libimobiledevice](https://github.com/libimobiledevice/libimobiledevice) — `brew install libimobiledevice`
 - [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) — `pip install pymobiledevice3`
 - [sshpass](https://formulae.brew.sh/formula/sshpass) — `brew install sshpass`
 
@@ -28,11 +27,14 @@ macOS floating panel that attaches to the vphone window and streamlines Unbound 
 vbound automatically detects the vphone window and attaches its panel to the right edge. Configure folder paths on the Home tab before first use.
 
 | Action | Description |
-|---|---|
+| --- | --- |
 | **Boot vphone** | Runs `make boot` in the vphone-cli folder |
+| **Shut Down** | Gracefully shuts down the virtual device via `pymobiledevice3 diagnostics shutdown` |
 | **Launch Discord** | Kills and relaunches Discord on the virtual device |
 | **Build & Install Unbound** | Builds the tweak (`gmake package`) and deploys it via SSH on port 2222 |
-| **Stream** | Live-tails device logs filtered to `app.unbound` and `com.facebook.react.log` subsystems |
+| **Stream** | Live-tails device logs filtered to `app.unbound` and `com.facebook.react` subsystems |
+
+Port forwarding (SSH on 2222) is handled automatically by `pymobiledevice3 usbmux forward` whenever an SSH or build action is triggered.
 
 ## Contributors
 

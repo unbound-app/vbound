@@ -15,7 +15,7 @@ extension AppController {
         Task {
             let (udid, _) = await resolveVphoneUDID()
             guard let udid else { return }
-            _ = await run(args: ["idevicediagnostics", "shutdown", "-u", udid])
+            _ = await run(args: ["pymobiledevice3", "diagnostics", "shutdown", "--udid", udid])
         }
     }
 

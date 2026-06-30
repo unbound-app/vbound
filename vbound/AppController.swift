@@ -53,7 +53,6 @@ final class AppController {
             forName: NSWindow.didMiniaturizeNotification, object: nil, queue: .main
         ) { [weak self] n in
             guard let self, (n.object as? NSWindow) === self.ourWindow else { return }
-            self.vphoneDetected = false
             self.isAttached = false
             self.findVphoneApp()?.hide()
         }
@@ -69,20 +68,21 @@ final class AppController {
     // MARK: - Window attachment / positioning
 
     private func checkAndAttach() {
+        let app = findVphoneApp()
         guard let vphoneFrame = findVphoneWindowFrame() else {
-            if vphoneDetected {
-                vphoneDetected = false
-                isAttached = false
-                if let app = findVphoneApp(), isVphoneMinimized(forPID: app.processIdentifier) {
-                    ourWindow?.miniaturize(nil)
-                } else {
-                    ourWindow?.orderOut(nil)
-                }
+            // vphoneDetected = process running (true even when minimized)
+            vphoneDetected = app != nil
+            guard isAttached else { return }
+            isAttached = false
+            if let app, isVphoneMinimized(forPID: app.processIdentifier) {
+                ourWindow?.miniaturize(nil)
+            } else if app == nil {
+                ourWindow?.orderOut(nil)
             }
             return
         }
-        if !vphoneDetected { ourWindow?.orderFront(nil) }
         vphoneDetected = true
+        if !isAttached { ourWindow?.orderFront(nil) }
         positionBeside(vphoneFrame)
     }
 
