@@ -331,24 +331,11 @@ struct ContentView: View {
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            ScrollViewReader { proxy in
-                ScrollView([.vertical, .horizontal]) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(filteredEntries.enumerated()), id: \.element.id) { idx, entry in
-                            LogEntryRow(
-                                entry: entry,
-                                isNew: highlightStartIdx >= 0 && idx >= highlightStartIdx
-                            )
-                        }
-                        Color.clear.frame(height: 1).id("logBottom")
-                    }
-                    .textSelection(.enabled)
-                    .frame(minWidth: cardSize.width - 16, alignment: .leading)
-                }
-                .onChange(of: scrollVersion) { _, _ in
-                    withAnimation { proxy.scrollTo("logBottom", anchor: .bottomLeading) }
-                }
-            }
+            LogTextView(
+                entries: filteredEntries,
+                highlightStartIdx: highlightStartIdx,
+                scrollVersion: scrollVersion
+            )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
