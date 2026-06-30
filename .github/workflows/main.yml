@@ -16,7 +16,7 @@ jobs:
             - name: Xcode Select Version
               uses: maxim-lobanov/setup-xcode@v1
               with:
-                  xcode-version: "27.0-beta"
+                  xcode-version: latest
 
             - name: Fetch Signing Assets
               uses: castdrian/setup-apple-certificate@main
