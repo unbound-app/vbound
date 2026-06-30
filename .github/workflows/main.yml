@@ -29,21 +29,11 @@ jobs:
                   bundle-identifier: dev.adrian.vbound
                   certificate-type: DEVELOPER_ID
 
-            - name: Set up .NET runtime
-              uses: actions/setup-dotnet@v4
-              with:
-                  dotnet-version: "8.0.x"
-
             - name: Install Signing Assets
-              uses: maui-actions/apple-provisioning@v4
+              uses: apple-actions/import-codesign-certs@v2
               with:
-                  certificate: ${{ steps.cert.outputs.p12-certificate-base64 }}
-                  certificate-passphrase: ${{ steps.cert.outputs.p12-password }}
-                  bundle-identifiers: dev.adrian.vbound
-                  profile-types: MAC_APP_DIRECT
-                  app-store-connect-key-id: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-                  app-store-connect-issuer-id: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-                  app-store-connect-private-key: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+                  p12-file-base64: ${{ steps.cert.outputs.p12-certificate-base64 }}
+                  p12-password: ${{ steps.cert.outputs.p12-password }}
 
             - name: Build macOS app
               run: |
