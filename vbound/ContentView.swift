@@ -159,10 +159,7 @@ struct ContentView: View {
     private var progressSection: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 7) {
-                if manager.buildPhase.isDone {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green).font(.caption)
-                } else if manager.buildPhase.isFailed {
+                if manager.buildPhase.isFailed {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.red).font(.caption)
                 }

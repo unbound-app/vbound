@@ -60,8 +60,7 @@ extension AppController {
             _ = await run(ssh: "echo 'alpine' | sudo -S killall -9 Discord; "
                             + "uiopen --bundleid com.hammerandchisel.discord")
 
-            buildPhase = .done; buildLog = ""; buildProgress = 0
-            scheduleReset()
+            buildPhase = .idle; buildLog = ""; buildProgress = 0
         }
     }
 

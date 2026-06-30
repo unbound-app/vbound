@@ -40,7 +40,7 @@ extension AppController {
             }
 
             while !Task.isCancelled {
-                let startTime = Int(Date().timeIntervalSince1970) - 10
+                let startTime = Int(Date().timeIntervalSince1970) - 5
                 let events = await self.collectLogEvents(udid: udid, startTime: startTime)
 
                 let fresh = events
@@ -62,7 +62,7 @@ extension AppController {
                     }
                 }
 
-                do { try await Task.sleep(for: .seconds(2)) } catch { break }
+                do { try await Task.sleep(for: .seconds(1)) } catch { break }
             }
 
             hintTask.cancel()

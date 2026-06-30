@@ -28,7 +28,7 @@ struct LogEntry: Identifiable {
 }
 
 enum BuildPhase {
-    case idle, building, uploading, installing, restarting, done
+    case idle, building, uploading, installing, restarting
     case failed(String)
 
     var isActive: Bool {
@@ -43,11 +43,6 @@ enum BuildPhase {
         }
     }
 
-    var isDone: Bool {
-        if case .done = self { return true }
-        return false
-    }
-
     var isFailed: Bool {
         if case .failed = self { return true }
         return false
@@ -60,7 +55,6 @@ enum BuildPhase {
         case .uploading:       return "Uploading…"
         case .installing:      return "Installing…"
         case .restarting:      return "Restarting Discord…"
-        case .done:            return "Done!"
         case .failed(let msg): return msg
         }
     }
