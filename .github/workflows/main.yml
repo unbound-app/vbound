@@ -13,7 +13,7 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v7
               with:
-                  fetch-depth: 2
+                  fetch-depth: 0
 
             - name: Check version bump
               id: check
@@ -22,9 +22,9 @@ jobs:
                   XCODEPROJ="${XCODEPROJ#./}"
                   PBXPROJ="$XCODEPROJ/project.pbxproj"
                   CURRENT=$(grep -m1 'MARKETING_VERSION' "$PBXPROJ" | tr -d ' ;' | cut -d= -f2)
-                  PREVIOUS=$(git show HEAD~1:"$PBXPROJ" | grep -m1 'MARKETING_VERSION' | tr -d ' ;' | cut -d= -f2)
-                  echo "Current: $CURRENT, Previous: $PREVIOUS"
-                  if [ "$CURRENT" != "$PREVIOUS" ] && [ "$(printf '%s\n' "$PREVIOUS" "$CURRENT" | sort -V | tail -n1)" = "$CURRENT" ]; then
+                  LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")
+                  echo "Current: $CURRENT, Latest tag: $LATEST_TAG"
+                  if [ "$CURRENT" != "$LATEST_TAG" ] && [ "$(printf '%s\n' "$LATEST_TAG" "$CURRENT" | sort -V | tail -n1)" = "$CURRENT" ]; then
                     echo "bumped=true" >> "$GITHUB_OUTPUT"
                   else
                     echo "bumped=false" >> "$GITHUB_OUTPUT"
