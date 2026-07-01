@@ -2,22 +2,64 @@ import SwiftUI
 import AppUpdater
 import Version
 
-struct UpdateSheet: View {
+// Rendered as an in-window overlay rather than a system `.sheet`. A real NSWindow
+// sheet attached to our floating, non-resizable panel repaints incorrectly while its
+// content resizes across states (a black flash under the title, worst during the
+// downloading phase where the progress row updates continuously) — this sidesteps
+// that entirely by never spawning a second window.
+struct UpdateOverlay: View {
     @EnvironmentObject private var appUpdater: AppUpdater
-    @Environment(\.dismiss) private var dismiss
+    @Binding var isPresented: Bool
 
     @State private var changelog: String? = nil
     @State private var checkCompleted = false
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            Divider()
-            content
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
+    private enum Phase {
+        case checking
+        case upToDate
+        case failed(String)
+        case available(Release)
+        case downloading(Release, Double)
+        case readyToInstall(Release, Bundle)
+
+        var release: Release? {
+            switch self {
+            case .available(let release), .downloading(let release, _), .readyToInstall(let release, _):
+                return release
+            case .checking, .upToDate, .failed:
+                return nil
+            }
         }
-        .frame(width: 440)
+    }
+
+    private var phase: Phase {
+        switch appUpdater.state {
+        case .newVersionDetected(let release, _):
+            return .available(release)
+        case .downloading(let release, _, let fraction):
+            return .downloading(release, fraction)
+        case .downloaded(let release, _, let bundle):
+            return .readyToInstall(release, bundle)
+        case .none:
+            // Absence of an update surfaces as AUError.cancelled (or .noValidUpdate) from
+            // the library, not as a nil error — only treat *other* errors as real failures.
+            if let error = appUpdater.lastError, !error.isCancelled {
+                return .failed(error.localizedDescription)
+            }
+            return checkCompleted ? .upToDate : .checking
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.35)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture(perform: close)
+
+            card
+                .transition(.scale(scale: 0.96).combined(with: .opacity))
+        }
         .onReceive(appUpdater.$state) { state in
             if case .none = state { return }
             checkCompleted = true
@@ -25,10 +67,27 @@ struct UpdateSheet: View {
         .onReceive(appUpdater.$lastError) { error in
             if error != nil { checkCompleted = true }
         }
-        .task(id: appUpdater.state.release?.tagName.description) {
-            guard let release = appUpdater.state.release else { changelog = nil; return }
+        .task(id: phase.release?.tagName.description) {
+            guard let release = phase.release else { changelog = nil; return }
             changelog = await appUpdater.localizedChangelog(for: release)
         }
+    }
+
+    private func close() {
+        withAnimation(.easeOut(duration: 0.15)) { isPresented = false }
+    }
+
+    private var card: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider()
+            statusAndChangelog
+                .padding(20)
+        }
+        .frame(width: 420)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.separator))
+        .shadow(color: .black.opacity(0.25), radius: 24, y: 8)
     }
 
     private var header: some View {
@@ -36,7 +95,7 @@ struct UpdateSheet: View {
             Text("Software Update")
                 .font(.headline)
             Spacer()
-            Button { dismiss() } label: {
+            Button(action: close) {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(.tertiary)
                     .imageScale(.large)
@@ -48,80 +107,97 @@ struct UpdateSheet: View {
         .padding(.vertical, 14)
     }
 
+    // Fixed height regardless of phase: the changelog scrolls in place and the status
+    // row swaps content without ever resizing the card.
+    private var statusAndChangelog: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            statusRow
+            changelogView
+            if let release = phase.release, let url = URL(string: release.htmlUrl) {
+                Link("Release Notes ↗", destination: url)
+                    .font(.footnote)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(height: 210, alignment: .top)
+    }
+
     @ViewBuilder
-    private var content: some View {
-        switch appUpdater.state {
-        case .none:
-            if checkCompleted {
-                Label("You're up to date.", systemImage: "checkmark.circle.fill")
+    private var statusRow: some View {
+        switch phase {
+        case .checking:
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("Checking for updates…").foregroundStyle(.secondary)
+            }
+
+        case .upToDate:
+            Label("You're up to date.", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.secondary)
+                .symbolRenderingMode(.multicolor)
+
+        case .failed(let message):
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Couldn't check for updates", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text(message)
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .symbolRenderingMode(.multicolor)
-            } else {
-                HStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
-                    Text("Checking for updates…").foregroundStyle(.secondary)
+                Button("Try Again") {
+                    checkCompleted = false
+                    appUpdater.check()
                 }
+                .buttonStyle(.link)
             }
 
-        case .newVersionDetected(let release, _):
-            updateContent(release: release) {
+        case .available(let release):
+            HStack {
+                Image(systemName: "arrow.down.circle.fill")
+                    .foregroundStyle(.blue)
+                    .imageScale(.large)
+                Text("Version \(release.tagName.description) available")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                ProgressView().controlSize(.small)
+            }
+
+        case .downloading(let release, let fraction):
+            VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .foregroundStyle(.blue)
-                        .imageScale(.large)
-                    Text("Version \(release.tagName.description) available")
+                    Text("Downloading version \(release.tagName.description)…")
                         .font(.subheadline.weight(.semibold))
                     Spacer()
-                    ProgressView().controlSize(.small)
+                    Text("\(Int(fraction * 100))%")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
+                ProgressView(value: fraction)
             }
 
-        case .downloading(let release, _, let fraction):
-            updateContent(release: release) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("Downloading version \(release.tagName.description)…")
-                            .font(.subheadline.weight(.semibold))
-                        Spacer()
-                        Text("\(Int(fraction * 100))%")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                    ProgressView(value: fraction)
-                }
-            }
-
-        case .downloaded(let release, _, let bundle):
-            updateContent(release: release) {
-                HStack {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .imageScale(.large)
-                    Text("Version \(release.tagName.description) ready to install")
-                        .font(.subheadline.weight(.semibold))
-                    Spacer()
-                    Button("Update Now") { appUpdater.install(bundle) }
-                        .buttonStyle(.borderedProminent)
-                }
+        case .readyToInstall(let release, let bundle):
+            HStack {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .imageScale(.large)
+                Text("Version \(release.tagName.description) ready to install")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Button("Update Now") { appUpdater.install(bundle) }
+                    .buttonStyle(.borderedProminent)
             }
         }
     }
 
     @ViewBuilder
-    private func updateContent(release: Release, @ViewBuilder statusRow: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            statusRow()
-            if let changelog, !changelog.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+    private var changelogView: some View {
+        if let changelog, !changelog.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            ScrollView {
                 Text(changelog)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .lineLimit(8)
             }
-            if let url = URL(string: release.htmlUrl) {
-                Link("Release Notes ↗", destination: url)
-                    .font(.footnote)
-            }
+            .frame(height: 100)
         }
     }
 }

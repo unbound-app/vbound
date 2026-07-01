@@ -78,16 +78,18 @@ struct ContentView: View {
         .onChange(of: showERR)    { _, _ in cancelHighlight() }
         .onChange(of: showDBG)    { _, _ in cancelHighlight() }
         .onChange(of: activeTab)  { _, _ in cancelHighlight() }
-        .sheet(isPresented: $showUpdateSheet) {
-            UpdateSheet()
-                .environmentObject(appUpdater)
+        .overlay {
+            if showUpdateSheet {
+                UpdateOverlay(isPresented: $showUpdateSheet)
+                    .environmentObject(appUpdater)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .checkForUpdates)) { _ in
-            showUpdateSheet = true
+            withAnimation(.easeOut(duration: 0.15)) { showUpdateSheet = true }
         }
         .onReceive(appUpdater.$state) { state in
             if case .none = state { return }
-            if !showUpdateSheet { showUpdateSheet = true }
+            if !showUpdateSheet { withAnimation(.easeOut(duration: 0.15)) { showUpdateSheet = true } }
         }
     }
 
