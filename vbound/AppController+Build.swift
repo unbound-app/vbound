@@ -65,14 +65,14 @@ extension AppController {
     }
 
     func fail(_ message: String) {
-        buildPhase = .failed(message); buildLog = ""; buildProgress = 0
+        buildPhase = .finishing; buildLog = message; buildProgress = 0
         scheduleReset()
     }
 
     func scheduleReset() {
         Task {
             try? await Task.sleep(for: .seconds(3))
-            buildPhase = .idle
+            buildPhase = .idle; buildLog = ""
         }
     }
 

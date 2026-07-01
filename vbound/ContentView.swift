@@ -186,14 +186,10 @@ struct ContentView: View {
     @ViewBuilder
     private var progressSection: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 7) {
-                if manager.buildPhase.isFailed {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.red).font(.caption)
-                }
+            if !manager.buildPhase.label.isEmpty {
                 Text(manager.buildPhase.label)
                     .font(.system(size: 12))
-                    .foregroundStyle(manager.buildPhase.isFailed ? Color.red : Color.secondary)
+                    .foregroundStyle(.secondary)
             }
             if manager.buildPhase.isRunning {
                 if case .building = manager.buildPhase {
@@ -202,7 +198,7 @@ struct ContentView: View {
                     ProgressView().progressViewStyle(.linear)
                 }
             }
-            if manager.buildPhase.isRunning && !manager.buildLog.isEmpty {
+            if manager.buildPhase.isActive && !manager.buildLog.isEmpty {
                 Text(manager.buildLog)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary.opacity(0.75))
@@ -477,15 +473,19 @@ struct ContentView: View {
                     }
                     .padding(.vertical, 4)
                 }
+                .defaultScrollAnchor(.bottom)
                 .background(Color.black)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .onTapGesture { shellInputFocused = true }
                 .onChange(of: manager.shellLines.count) { _, _ in
-                    withAnimation { proxy.scrollTo("shellBottom", anchor: .bottomLeading) }
+                    proxy.scrollTo("shellBottom", anchor: .bottomLeading)
+                }
+                .onChange(of: manager.shellLines.last) { _, _ in
+                    proxy.scrollTo("shellBottom", anchor: .bottomLeading)
                 }
                 .onChange(of: shellScrollVersion) { _, _ in
-                    withAnimation { proxy.scrollTo("shellBottom", anchor: .bottomLeading) }
+                    proxy.scrollTo("shellBottom", anchor: .bottomLeading)
                 }
             }
 
