@@ -28,7 +28,6 @@ struct ContentView: View {
     @State private var reactNativeUnread : UnreadLevel = .none
     @State private var shellHistory      : [String] = []
     @State private var shellHistoryIndex : Int? = nil
-    @State private var settingsTokenBox  = TokenBox()
     @Environment(\.openSettings) private var openSettings
     @FocusState private var shellInputFocused: Bool
 
@@ -171,7 +170,7 @@ struct ContentView: View {
             Divider().frame(height: 16)
 
             Button {
-                presentAboveFloatingPanels(tokenBox: settingsTokenBox) { openSettings() }
+                openSettings()
             } label: {
                 Image(systemName: "gearshape")
             }
