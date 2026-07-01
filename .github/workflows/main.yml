@@ -18,8 +18,11 @@ jobs:
             - name: Check version bump
               id: check
               run: |
-                  CURRENT=$(grep -m1 'MARKETING_VERSION' vbound.xcodeproj/project.pbxproj | tr -d ' ;' | cut -d= -f2)
-                  PREVIOUS=$(git show HEAD~1:vbound.xcodeproj/project.pbxproj | grep -m1 'MARKETING_VERSION' | tr -d ' ;' | cut -d= -f2)
+                  XCODEPROJ=$(find . -maxdepth 1 -name "*.xcodeproj" -type d | head -1)
+                  XCODEPROJ="${XCODEPROJ#./}"
+                  PBXPROJ="$XCODEPROJ/project.pbxproj"
+                  CURRENT=$(grep -m1 'MARKETING_VERSION' "$PBXPROJ" | tr -d ' ;' | cut -d= -f2)
+                  PREVIOUS=$(git show HEAD~1:"$PBXPROJ" | grep -m1 'MARKETING_VERSION' | tr -d ' ;' | cut -d= -f2)
                   echo "Current: $CURRENT, Previous: $PREVIOUS"
                   if [ "$CURRENT" != "$PREVIOUS" ] && [ "$(printf '%s\n' "$PREVIOUS" "$CURRENT" | sort -V | tail -n1)" = "$CURRENT" ]; then
                     echo "bumped=true" >> "$GITHUB_OUTPUT"
