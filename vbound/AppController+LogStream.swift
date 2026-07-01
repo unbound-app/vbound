@@ -12,14 +12,14 @@ extension AppController {
 
             let (udid, diag) = await self.resolveVphoneUDID()
             guard let udid else {
-                DispatchQueue.main.async { [diag] in
+                await MainActor.run {  // #10
                     self.logLines = diag
                     self.isStreaming = false
                 }
                 return
             }
 
-            DispatchQueue.main.async {
+            await MainActor.run {  // #10
                 self.logLines.append(LogEntry(time: "", level: "", source: "",
                                               message: ">> streaming from vphone \(udid)",
                                               subsystem: nil))
@@ -28,6 +28,7 @@ extension AppController {
             var lastMach: Double = 0
 
             while !Task.isCancelled {
+                // Subtract 5 s so we never miss events at the boundary of a 1-second poll window
                 let startTime = Int(Date().timeIntervalSince1970) - 5
                 let events = await self.collectLogEvents(udid: udid, startTime: startTime)
 
@@ -40,10 +41,10 @@ extension AppController {
                 if !fresh.isEmpty {
                     let entries = fresh.compactMap { self.makeLogEntry($0) }
                     if !entries.isEmpty {
-                        DispatchQueue.main.async {
+                        await MainActor.run {  // #10
                             self.logLines.append(contentsOf: entries)
                             if self.logLines.count > 2000 {
-                                self.logLines = Array(self.logLines.suffix(2000))
+                                self.logLines.removeFirst(self.logLines.count - 2000)  // #3
                             }
                         }
                     }
@@ -52,7 +53,7 @@ extension AppController {
                 do { try await Task.sleep(for: .seconds(1)) } catch { break }
             }
 
-            DispatchQueue.main.async { [weak self] in self?.isStreaming = false }
+            await MainActor.run { [weak self] in self?.isStreaming = false }  // #10
         }
     }
 
@@ -65,7 +66,6 @@ extension AppController {
     // MARK: - Private helpers
 
     private func collectLogEvents(udid: String, startTime: Int) async -> [[String: Any]] {
-        // .logarchive suffix silences pymobiledevice3 warning; runCapture discards its stderr
         let tmpURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("vbound-\(UUID().uuidString).logarchive")
         defer { try? FileManager.default.removeItem(at: tmpURL) }
@@ -97,6 +97,11 @@ extension AppController {
         }
     }
 
+    // Matches the `log show --ndjson` timestamp format "2024-01-15 10:23:45.123456-0800"
+    // and captures the HH:mm:ss.SSS portion. Falls back to the old split-on-space approach
+    // if the format ever changes (#13).
+    private static let tsRegex = /\d{4}-\d{2}-\d{2} (\d{2}:\d{2}:\d{2}\.\d{3})/
+
     private func makeLogEntry(_ e: [String: Any]) -> LogEntry? {
         guard var msg = e["eventMessage"] as? String, !msg.isEmpty else { return nil }
         let ts        = e["timestamp"]   as? String ?? ""
@@ -104,8 +109,13 @@ extension AppController {
         let category  = e["category"]    as? String ?? ""
         let level     = e["messageType"] as? String ?? ""
 
-        let parts = ts.components(separatedBy: " ")
-        let time  = parts.count >= 2 ? String(parts[1].prefix(12)) : String(ts.prefix(12))
+        let time: String
+        if let m = ts.firstMatch(of: Self.tsRegex) {  // #13
+            time = String(m.1)
+        } else {
+            let parts = ts.components(separatedBy: " ")
+            time = parts.count >= 2 ? String(parts[1].prefix(12)) : String(ts.prefix(12))
+        }
 
         let lvl: String
         switch level {
@@ -151,7 +161,7 @@ extension AppController {
             guard !identifier.isEmpty else { continue }
             diag.append(hdr("   \(identifier)  →  \(productType.isEmpty ? "(no response)" : productType)"))
             if productType == "iPhone99,11" {
-                DispatchQueue.main.async { self.vphoneUDID = identifier }
+                await MainActor.run { self.vphoneUDID = identifier }  // #10
                 return (identifier, [])
             }
         }

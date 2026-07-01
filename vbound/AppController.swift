@@ -3,7 +3,7 @@ import CoreGraphics
 import Observation
 
 @Observable
-final class AppController {
+final class AppController: @unchecked Sendable {
 
     // MARK: - Observable state
 
@@ -21,11 +21,21 @@ final class AppController {
 
     // MARK: - Internal state (accessible from extension files)
 
+    // ~/.ssh/ is created lazily here so ControlPath is always valid on first use (#8)
+    static let sshControlPath: String = {
+        let dir = NSHomeDirectory() + "/.ssh"
+        try? FileManager.default.createDirectory(
+            atPath: dir, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))])
+        return dir + "/vbound-mux"
+    }()
+
     weak var ourWindow:   NSWindow?
     var forwardProcess:   Process?
     var logStreamTask:    Task<Void, Never>?
     var shellProcess:     Process?
     var shellInputHandle: FileHandle?
+    var shellAutoReconnect = false
     var terminatingDelegate: TerminatingWindowDelegate?
 
     // MARK: - Private state (window attachment only)

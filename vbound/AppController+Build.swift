@@ -15,10 +15,9 @@ extension AppController {
 
             let built = await run(args: [
                 "/bin/zsh", "-l", "-c",
-                "cd '\(dirPath)' && gmake package DEBUG=1 -j\(ncpu) 2>&1"
-            ]) { [weak self = self] raw in
-                let line = raw.replacingOccurrences(
-                    of: "\u{1B}\\[[0-9;]*[A-Za-z]", with: "", options: .regularExpression)
+                "cd '\(dirPath)' && \(makeExecutable) package DEBUG=1 -j\(ncpu) 2>&1"  // #15
+            ]) { [weak self] raw in
+                let line = raw.replacing(/\u{1B}\[[0-9;]*[A-Za-z]/, with: "")  // #2 — inline literal escapes SE-0401
                 guard line.hasPrefix("==>") || line.hasPrefix("> M") || line.hasPrefix("dm.pl:")
                 else { return }
                 completedSteps += 1
@@ -46,7 +45,7 @@ extension AppController {
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "UserKnownHostsFile=/dev/null",
                 "-o", "ControlMaster=auto",
-                "-o", "ControlPath=/tmp/vbound-ssh-mux",
+                "-o", "ControlPath=\(AppController.sshControlPath)",  // #8
                 "-o", "ControlPersist=60",
                 debPath, "mobile@127.0.0.1:\(remoteDeb)"
             ])
@@ -76,6 +75,13 @@ extension AppController {
         }
     }
 
+    // Probe common Homebrew and system paths so the build works whether the user has
+    // GNU make or only Apple's /usr/bin/make (#15).
+    private var makeExecutable: String {
+        ["/opt/homebrew/bin/gmake", "/usr/local/bin/gmake", "/usr/bin/make"]
+            .first { FileManager.default.isExecutableFile(atPath: $0) } ?? "make"
+    }
+
     private func estimateBuildSteps(in dirPath: String) -> Int {
         guard let e = FileManager.default.enumerator(
             at: URL(fileURLWithPath: dirPath),
@@ -83,18 +89,20 @@ extension AppController {
             options: .skipsHiddenFiles
         ) else { return 50 }
         let skipDirs: Set<String> = [".theos", "packages", "vendor", "node_modules"]
-        var xCount = 0, mCount = 0
+        var logosCount = 0, objcCount = 0, swiftCount = 0
         for case let url as URL in e {
             if url.hasDirectoryPath && skipDirs.contains(url.lastPathComponent) {
                 e.skipDescendants(); continue
             }
             switch url.pathExtension {
-            case "x", "xm": xCount += 1
-            case "m", "mm": mCount += 1
+            case "x", "xm": logosCount += 1  // Logos: preprocess + compile (~3 make steps each)
+            case "m", "mm":  objcCount  += 1  // ObjC: compile (~2 make steps each)
+            case "swift":    swiftCount += 1  // Swift: compile (~2 make steps each) (#16)
             default: break
             }
         }
-        return xCount * 4 + mCount * 2 + 13
+        // Overhead: link + stage + package + sign + metadata ≈ 8 steps
+        return max(logosCount * 3 + (objcCount + swiftCount) * 2 + 8, 20)
     }
 
     private func findDeb(in directory: String) -> String? {

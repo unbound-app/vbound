@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var showERR           = true
     @State private var showDBG           = true
     @State private var highlightStartIdx = -1
+    @State private var highlightTask: Task<Void, Never>? = nil  // #11
     @State private var activeTab         : LogTab = .unbound
     @State private var scrollVersion        = 0
     @State private var showShutdownConfirm  = false
@@ -62,11 +63,21 @@ struct ContentView: View {
             guard delta > 0 else { return }
             scrollVersion += 1
             highlightStartIdx = max(0, filteredEntries.count - delta)
-            Task {
+            // Cancel any in-flight fade so a burst of new entries resets the timer (#11)
+            highlightTask?.cancel()
+            highlightTask = Task {
                 try? await Task.sleep(for: .milliseconds(1400))
+                guard !Task.isCancelled else { return }
                 withAnimation(.easeOut(duration: 0.9)) { highlightStartIdx = -1 }
             }
         }
+        // Cancel highlight when the filter changes — the index is relative to filteredEntries
+        // and would point to the wrong rows after the filter updates (#11)
+        .onChange(of: logSearch)  { _, _ in cancelHighlight() }
+        .onChange(of: showINF)    { _, _ in cancelHighlight() }
+        .onChange(of: showERR)    { _, _ in cancelHighlight() }
+        .onChange(of: showDBG)    { _, _ in cancelHighlight() }
+        .onChange(of: activeTab)  { _, _ in cancelHighlight() }
         .sheet(isPresented: $showUpdateSheet) {
             UpdateSheet()
                 .environmentObject(appUpdater)
@@ -111,7 +122,7 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(manager.vphoneDetected)
+                .disabled(manager.vphoneDetected || !pathValid(vphoneCliPath))
 
                 Button {
                     showShutdownConfirm = true
@@ -146,7 +157,7 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
-                .disabled(manager.buildPhase.isRunning)
+                .disabled(manager.buildPhase.isRunning || !pathValid(unboundPath))
             }
         }
         .padding(.horizontal, 16)
@@ -300,8 +311,10 @@ struct ContentView: View {
                     scrollVersion += 1
                     guard !filteredEntries.isEmpty else { return }
                     highlightStartIdx = max(0, filteredEntries.count - 5)
-                    Task {
+                    highlightTask?.cancel()  // #11
+                    highlightTask = Task {
                         try? await Task.sleep(for: .milliseconds(1400))
+                        guard !Task.isCancelled else { return }
                         withAnimation(.easeOut(duration: 0.9)) { highlightStartIdx = -1 }
                     }
                 } label: {
@@ -510,6 +523,16 @@ struct ContentView: View {
             .background(Color(white: 0.1))
             .environment(\.colorScheme, .dark)
         }
+    }
+
+    private func cancelHighlight() {  // #11
+        highlightTask?.cancel()
+        highlightTask = nil
+        highlightStartIdx = -1
+    }
+
+    private func pathValid(_ path: String) -> Bool {  // #12
+        FileManager.default.fileExists(atPath: (path as NSString).expandingTildeInPath)
     }
 
     private func copyShellOutput() {

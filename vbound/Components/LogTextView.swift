@@ -61,6 +61,10 @@ private struct NSObjectData {
     let isEmpty: Bool
 }
 
+// Matches `<CapitalCaseName: 0xADDR` — requires a capital-letter class name so it
+// doesn't false-positive on URLs, hex color values, or error codes (#14).
+private let nsObjPointerPattern = /<[A-Z]\w*(?:\.\w+)*: 0x[0-9a-fA-F]+/
+
 private func detectNSObject(_ message: String) -> NSObjectData? {
     if message.contains("\n"),
        let openIdx  = message.firstIndex(of: "{"),
@@ -74,10 +78,11 @@ private func detectNSObject(_ message: String) -> NSObjectData? {
             return NSObjectData(prefix: prefix, body: body, isEmpty: inner.isEmpty)
         }
     }
+    // Use a precise Regex instead of the plain `: 0x` substring check (#14)
     if let openRange  = message.range(of: "<"),
        let closeIndex = message.lastIndex(of: ">"),
        closeIndex > openRange.lowerBound,
-       message[openRange.lowerBound...].contains(": 0x") {
+       message[openRange.lowerBound...].contains(nsObjPointerPattern) {
         let prefix = String(message[..<openRange.lowerBound]).trimmingCharacters(in: .whitespaces)
         let body   = String(message[openRange.lowerBound...closeIndex])
         let inner: String = openRange.upperBound < closeIndex

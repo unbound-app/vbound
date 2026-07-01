@@ -4,6 +4,7 @@ extension AppController {
 
     func connectShell() {
         guard !isShellConnected else { return }
+        shellAutoReconnect = true  // #6: cleared by disconnectShell() for deliberate disconnects
         shellLines = []
 
         Task { [weak self] in
@@ -19,7 +20,7 @@ extension AppController {
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "UserKnownHostsFile=/dev/null",
                 "-o", "ControlMaster=auto",
-                "-o", "ControlPath=/tmp/vbound-ssh-mux",
+                "-o", "ControlPath=\(AppController.sshControlPath)",  // #8
                 "-o", "ControlPersist=60",
                 "mobile@127.0.0.1"
             ]
@@ -31,54 +32,55 @@ extension AppController {
             p.standardError  = outPipe
             p.standardInput  = inPipe
 
-            // Read output chunks immediately so partial lines (prompts) appear
             outPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
                 guard let self else { return }
                 let data = handle.availableData
                 guard !data.isEmpty, let raw = String(data: data, encoding: .utf8) else { return }
 
-                // Strip ANSI/terminal control sequences
+                let ansiCsi = /\u{1B}\[[ -?]*[@-~]/
+                let ansiEsc = /\u{1B}[^\[]/
                 let stripped = raw
-                    .replacingOccurrences(of: "\u{1B}\\[[\\x20-\\x3f]*[\\x40-\\x7e]", with: "", options: .regularExpression)
-                    .replacingOccurrences(of: "\u{1B}[^\\[]", with: "", options: .regularExpression)
+                    .replacing(ansiCsi, with: "")
+                    .replacing(ansiEsc, with: "")
 
-                DispatchQueue.main.async {
-                    // Scan character by character so \r (alone) resets the current line
-                    // and only \r\n is treated as a line ending — this hides zsh's EOL
-                    // marker (% + spaces + \r) which overwrites itself in a real terminal.
-                    var i = stripped.startIndex
-                    while i < stripped.endIndex {
-                        let c = stripped[i]
-                        let ni = stripped.index(after: i)
-                        switch c {
-                        case "\r":
-                            if ni < stripped.endIndex && stripped[ni] == "\n" {
-                                self.shellLines.append("")
-                                i = stripped.index(after: ni)
-                            } else {
-                                // Carriage return: reset current line (overwrite mode).
-                                // If the line being erased had content (the zsh EOL marker
-                                // "% <spaces>\r"), insert a blank separator before the reset
-                                // so the next prompt has visual space from the output above.
-                                if self.shellLines.isEmpty { self.shellLines.append("") }
-                                let hadContent = !self.shellLines[self.shellLines.count - 1].isEmpty
-                                self.shellLines[self.shellLines.count - 1] = ""
-                                if hadContent && self.shellLines.dropLast().contains(where: { !$0.isEmpty }) {
-                                    self.shellLines.insert("", at: self.shellLines.count - 1)
+                // DispatchQueue.main.async puts us on the main thread.
+                // assumeIsolated registers that fact with the Swift actor runtime so
+                // @Observable property accesses don't trap under Swift 6 (#10).
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    MainActor.assumeIsolated {
+                        // Work on a local copy — single @Observable mutation at the end (#1)
+                        var lines = self.shellLines
+                        var i = stripped.startIndex
+                        while i < stripped.endIndex {
+                            let c  = stripped[i]
+                            let ni = stripped.index(after: i)
+                            switch c {
+                            case "\r":
+                                if ni < stripped.endIndex && stripped[ni] == "\n" {
+                                    lines.append("")
+                                    i = stripped.index(after: ni)
+                                } else {
+                                    if lines.isEmpty { lines.append("") }
+                                    let hadContent = !lines[lines.count - 1].isEmpty
+                                    lines[lines.count - 1] = ""
+                                    if hadContent && lines.dropLast().contains(where: { !$0.isEmpty }) {
+                                        lines.insert("", at: lines.count - 1)
+                                    }
+                                    i = ni
                                 }
+                            case "\n":
+                                lines.append("")
+                                i = ni
+                            default:
+                                if lines.isEmpty { lines.append("") }
+                                lines[lines.count - 1].append(c)
                                 i = ni
                             }
-                        case "\n":
-                            self.shellLines.append("")
-                            i = ni
-                        default:
-                            if self.shellLines.isEmpty { self.shellLines.append("") }
-                            self.shellLines[self.shellLines.count - 1].append(c)
-                            i = ni
                         }
-                    }
-                    if self.shellLines.count > 2000 {
-                        self.shellLines = Array(self.shellLines.suffix(2000))
+                        // removeFirst avoids a full array copy vs Array(suffix(n)) (#3)
+                        if lines.count > 2000 { lines.removeFirst(lines.count - 2000) }
+                        self.shellLines = lines  // single mutation
                     }
                 }
             }
@@ -102,6 +104,12 @@ extension AppController {
                 self?.shellInputHandle = nil
                 self?.isShellConnected = false
             }
+
+            // Auto-reconnect on unexpected drops; suppressed when disconnectShell() clears the flag (#6)
+            guard self.shellAutoReconnect, !Task.isCancelled else { return }
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, self.shellAutoReconnect else { return }
+            await MainActor.run { [weak self] in self?.connectShell() }
         }
     }
 
@@ -117,6 +125,7 @@ extension AppController {
     }
 
     func disconnectShell() {
+        shellAutoReconnect = false  // prevent reconnect on deliberate disconnect (#6)
         shellProcess?.terminate()
         shellProcess     = nil
         shellInputHandle = nil

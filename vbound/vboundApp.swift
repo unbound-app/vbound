@@ -63,7 +63,7 @@ final class TerminatingWindowDelegate: NSObject, NSWindowDelegate {
         let mux = Process()
         mux.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         mux.arguments     = ["ssh", "-O", "exit",
-                             "-o", "ControlPath=/tmp/vbound-ssh-mux",
+                             "-o", "ControlPath=\(AppController.sshControlPath)",  // #8
                              "mobile@127.0.0.1"]
         try? mux.run()
         mux.waitUntilExit()
@@ -82,6 +82,13 @@ final class TerminatingWindowDelegate: NSObject, NSWindowDelegate {
     }
 }
 
+// MARK: - Observer token box (#17)
+// Wraps the NotificationCenter observer token in a reference type so it has a
+// stable identity independent of the App struct's value semantics.
+private final class TokenBox {
+    var token: NSObjectProtocol?
+}
+
 // MARK: - App entry point
 
 extension Notification.Name {
@@ -91,6 +98,7 @@ extension Notification.Name {
 @main
 struct vboundApp: App {
     @State private var manager = AppController()
+    @State private var aboutTokenBox = TokenBox()  // #17
     @StateObject private var appUpdater: AppUpdater = {
         let updater = AppUpdater(owner: "unbound-app", repo: "vbound")
         #if DEBUG
@@ -118,22 +126,27 @@ struct vboundApp: App {
             CommandGroup(replacing: .appInfo) {
                 Button("About vbound") {
                     NSApp.activate(ignoringOtherApps: true)
-                    // Lower our floating windows so the About panel appears above them
                     let floatingWins = NSApp.windows.filter { $0.level == .floating }
                     floatingWins.forEach { $0.level = .normal }
                     NSApp.orderFrontStandardAboutPanel(nil)
-                    // Restore floating level when the About panel closes
-                    var token: NSObjectProtocol?
-                    token = NotificationCenter.default.addObserver(
+                    // Remove any leftover observer from a previous About-panel open (#17)
+                    if let prev = aboutTokenBox.token {
+                        NotificationCenter.default.removeObserver(prev)
+                        aboutTokenBox.token = nil
+                    }
+                    // TokenBox gives the observer closure a stable reference to its own
+                    // token without relying on a local `var` that falls out of scope (#17).
+                    let box = aboutTokenBox
+                    box.token = NotificationCenter.default.addObserver(
                         forName: NSWindow.willCloseNotification,
                         object: nil,
                         queue: .main
-                    ) { notification in
+                    ) { [box] notification in
                         guard let closed = notification.object as? NSWindow,
                               !floatingWins.contains(closed) else { return }
                         floatingWins.forEach { $0.level = .floating }
-                        token.map { NotificationCenter.default.removeObserver($0) }
-                        token = nil
+                        if let t = box.token { NotificationCenter.default.removeObserver(t) }
+                        box.token = nil
                     }
                 }
                 Divider()

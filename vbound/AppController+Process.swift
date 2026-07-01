@@ -51,7 +51,7 @@ extension AppController {
             "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null",
             "-o", "ControlMaster=auto",
-            "-o", "ControlPath=/tmp/vbound-ssh-mux",
+            "-o", "ControlPath=\(AppController.sshControlPath)",  // #8
             "-o", "ControlPersist=60",
             "mobile@127.0.0.1",
             command
@@ -97,8 +97,9 @@ extension AppController {
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         p.arguments     = ["pymobiledevice3", "usbmux", "forward", "2222", "22"]
         p.environment   = enrichedEnvironment
-        try? p.run()
-        forwardProcess = p
+        // Assign only on success so forwardProcess never holds a ref to a process that
+        // failed to launch (#5)
+        do { try p.run(); forwardProcess = p } catch {}
 
         try? await Task.sleep(for: .milliseconds(1500))
     }
