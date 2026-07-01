@@ -4,6 +4,7 @@ extension AppController {
 
     func bootVphone(in directory: String) {
         bootedVphone = true
+        didAutoLaunchDiscord = false
         let dirPath = (directory as NSString).expandingTildeInPath
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
@@ -24,7 +25,7 @@ extension AppController {
         Task {
             if !isStreaming { startLogStream() }
             await ensurePortForward()
-            _ = await run(ssh: "echo 'alpine' | sudo -S killall -9 Discord; "
+            _ = await run(ssh: "echo '\(sshPassword)' | sudo -S killall -9 Discord; "
                              + "uiopen --bundleid com.hammerandchisel.discord")
         }
     }

@@ -40,7 +40,7 @@ extension AppController {
 
             buildPhase = .uploading; buildLog = ""; buildProgress = 0
             let uploaded = await run(args: [
-                "sshpass", "-p", "alpine", "scp",
+                "sshpass", "-p", sshPassword, "scp",
                 "-P", "2222",
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "UserKnownHostsFile=/dev/null",
@@ -52,26 +52,35 @@ extension AppController {
             guard uploaded else { return fail("Upload failed") }
 
             buildPhase = .installing
-            let installed = await run(ssh: "echo 'alpine' | sudo -S dpkg -i '\(remoteDeb)'")
+            let installed = await run(ssh: "echo '\(sshPassword)' | sudo -S dpkg -i '\(remoteDeb)'")
             guard installed else { return fail("Install failed") }
 
             buildPhase = .restarting
-            _ = await run(ssh: "echo 'alpine' | sudo -S killall -9 Discord; "
+            _ = await run(ssh: "echo '\(sshPassword)' | sudo -S killall -9 Discord; "
                             + "uiopen --bundleid com.hammerandchisel.discord")
 
-            buildPhase = .idle; buildLog = ""; buildProgress = 0
+            buildPhase = .succeeded; buildLog = ""; buildProgress = 0
+            scheduleReset()
         }
     }
 
     func fail(_ message: String) {
-        buildPhase = .finishing; buildLog = message; buildProgress = 0
-        scheduleReset()
+        buildPhase = .failed(message); buildLog = ""; buildProgress = 0
     }
 
+    // Auto-dismiss a success toast after a few seconds; failures stay until the
+    // user dismisses them explicitly (via dismissBuildResult()).
     func scheduleReset() {
         Task {
-            try? await Task.sleep(for: .seconds(3))
-            buildPhase = .idle; buildLog = ""
+            try? await Task.sleep(for: .seconds(4))
+            if case .succeeded = buildPhase { buildPhase = .idle; buildLog = "" }
+        }
+    }
+
+    func dismissBuildResult() {
+        switch buildPhase {
+        case .succeeded, .failed: buildPhase = .idle; buildLog = ""
+        default: break
         }
     }
 

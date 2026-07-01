@@ -43,8 +43,9 @@ extension AppController {
                     if !entries.isEmpty {
                         await MainActor.run {  // #10
                             self.logLines.append(contentsOf: entries)
-                            if self.logLines.count > 2000 {
-                                self.logLines.removeFirst(self.logLines.count - 2000)  // #3
+                            let limit = self.logBufferSize
+                            if self.logLines.count > limit {
+                                self.logLines.removeFirst(self.logLines.count - limit)  // #3
                             }
                         }
                     }

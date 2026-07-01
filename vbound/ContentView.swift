@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import AppUpdater
+import Version
 
 private let cardSize = NSSize(width: 600, height: 660)
 
@@ -9,6 +10,7 @@ struct ContentView: View {
     @EnvironmentObject private var appUpdater: AppUpdater
     @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
     @AppStorage("unboundPath")   private var unboundPath   = NSHomeDirectory() + "/Developer/loader-ios"
+    @AppStorage("skippedUpdateVersion") private var skippedUpdateVersion = ""
     @State private var showUpdateSheet = false
 
     @State private var logSearch         = ""
@@ -22,6 +24,10 @@ struct ContentView: View {
     @State private var showShutdownConfirm  = false
     @State private var shellInput           = ""
     @State private var shellScrollVersion   = 0
+    @State private var unboundUnread     : UnreadLevel = .none
+    @State private var reactNativeUnread : UnreadLevel = .none
+    @State private var shellHistory      : [String] = []
+    @State private var shellHistoryIndex : Int? = nil
     @FocusState private var shellInputFocused: Bool
 
     var body: some View {
@@ -70,6 +76,7 @@ struct ContentView: View {
                 guard !Task.isCancelled else { return }
                 withAnimation(.easeOut(duration: 0.9)) { highlightStartIdx = -1 }
             }
+            markUnread(manager.logLines[old..<new])
         }
         // Cancel highlight when the filter changes — the index is relative to filteredEntries
         // and would point to the wrong rows after the filter updates (#11)
@@ -77,7 +84,11 @@ struct ContentView: View {
         .onChange(of: showINF)    { _, _ in cancelHighlight() }
         .onChange(of: showERR)    { _, _ in cancelHighlight() }
         .onChange(of: showDBG)    { _, _ in cancelHighlight() }
-        .onChange(of: activeTab)  { _, _ in cancelHighlight() }
+        .onChange(of: activeTab)  { _, new in
+            cancelHighlight()
+            if new == .unbound     { unboundUnread     = .none }
+            if new == .reactNative { reactNativeUnread = .none }
+        }
         .overlay {
             if showUpdateSheet {
                 UpdateOverlay(isPresented: $showUpdateSheet)
@@ -89,6 +100,7 @@ struct ContentView: View {
         }
         .onReceive(appUpdater.$state) { state in
             if case .none = state { return }
+            guard state.release?.tagName.description != skippedUpdateVersion else { return }
             if !showUpdateSheet { withAnimation(.easeOut(duration: 0.15)) { showUpdateSheet = true } }
         }
     }
@@ -198,26 +210,53 @@ struct ContentView: View {
 
     @ViewBuilder
     private var progressSection: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            if !manager.buildPhase.label.isEmpty {
-                Text(manager.buildPhase.label)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-            if manager.buildPhase.isRunning {
-                if case .building = manager.buildPhase {
-                    ProgressView(value: manager.buildProgress).progressViewStyle(.linear)
-                } else {
-                    ProgressView().progressViewStyle(.linear)
+        switch manager.buildPhase {
+        case .succeeded:
+            resultRow(icon: "checkmark.circle.fill", tint: .green, message: manager.buildPhase.label)
+        case .failed:
+            resultRow(icon: "exclamationmark.triangle.fill", tint: .red, message: manager.buildPhase.label)
+        default:
+            VStack(alignment: .leading, spacing: 5) {
+                if !manager.buildPhase.label.isEmpty {
+                    Text(manager.buildPhase.label)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                if manager.buildPhase.isRunning {
+                    if case .building = manager.buildPhase {
+                        ProgressView(value: manager.buildProgress).progressViewStyle(.linear)
+                    } else {
+                        ProgressView().progressViewStyle(.linear)
+                    }
+                }
+                if manager.buildPhase.isActive && !manager.buildLog.isEmpty {
+                    Text(manager.buildLog)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary.opacity(0.75))
+                        .lineLimit(1).truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            if manager.buildPhase.isActive && !manager.buildLog.isEmpty {
-                Text(manager.buildLog)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary.opacity(0.75))
-                    .lineLimit(1).truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private func resultRow(icon: String, tint: Color, message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .foregroundStyle(tint)
+            Text(message)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            Spacer()
+            Button {
+                manager.dismissBuildResult()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.tertiary)
             }
+            .buttonStyle(.plain)
         }
     }
 
@@ -240,9 +279,9 @@ struct ContentView: View {
             Divider()
 
             HStack(spacing: 10) {
-                tabButton(.unbound,     icon: "puzzlepiece.extension",                   label: "Unbound")
-                tabButton(.reactNative, icon: "chevron.left.forwardslash.chevron.right", label: "React Native")
-                tabButton(.shell,       icon: "terminal",                                label: "Shell")
+                tabButton(.unbound,     icon: "puzzlepiece.extension",                   label: "Unbound",      unread: unboundUnread)
+                tabButton(.reactNative, icon: "chevron.left.forwardslash.chevron.right", label: "React Native", unread: reactNativeUnread)
+                tabButton(.shell,       icon: "terminal",                                label: "Shell",        unread: .none)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 7)
@@ -359,7 +398,9 @@ struct ContentView: View {
             LogTextView(
                 entries: filteredEntries,
                 highlightStartIdx: highlightStartIdx,
-                scrollVersion: scrollVersion
+                scrollVersion: scrollVersion,
+                searchQuery: logSearch,
+                onFilterToSource: { entry in logSearch = entry.source }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -368,18 +409,32 @@ struct ContentView: View {
     // MARK: - Helpers
 
     @ViewBuilder
-    private func tabButton(_ tab: LogTab, icon: String, label: String) -> some View {
+    private func tabButton(_ tab: LogTab, icon: String, label: String, unread: UnreadLevel) -> some View {
         if activeTab == tab {
             Button { activeTab = tab } label: {
-                Label(label, systemImage: icon).frame(maxWidth: .infinity)
+                tabLabel(icon: icon, label: label, unread: unread)
             }
             .buttonStyle(.borderedProminent)
         } else {
             Button { activeTab = tab } label: {
-                Label(label, systemImage: icon).frame(maxWidth: .infinity)
+                tabLabel(icon: icon, label: label, unread: unread)
             }
             .buttonStyle(.bordered)
         }
+    }
+
+    @ViewBuilder
+    private func tabLabel(icon: String, label: String, unread: UnreadLevel) -> some View {
+        Label(label, systemImage: icon)
+            .frame(maxWidth: .infinity)
+            .overlay(alignment: .topTrailing) {
+                if unread != .none {
+                    Circle()
+                        .fill(unread == .error ? Color.red : Color.blue)
+                        .frame(width: 6, height: 6)
+                        .offset(x: 2, y: -2)
+                }
+            }
     }
 
     private var filteredEntries: [LogEntry] {
@@ -440,7 +495,8 @@ struct ContentView: View {
                 .help("Copy shell output to clipboard")
 
                 Button {
-                    manager.shellLines = []
+                    manager.shellBuffer.reset()
+                    manager.shellLines = manager.shellBuffer.lines
                     if manager.isShellConnected { manager.sendShellInput("") }
                 } label: {
                     Image(systemName: "trash")
@@ -477,13 +533,16 @@ struct ContentView: View {
             ScrollViewReader { proxy in
                 ScrollView([.vertical, .horizontal]) {
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(manager.shellLines.map { $0.isEmpty ? " " : $0 }.joined(separator: "\n"))
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(Color.white)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: true, vertical: true)
-                            .frame(minWidth: cardSize.width - 32, alignment: .topLeading)
-                            .padding(.horizontal, 8)
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(manager.shellLines.enumerated()), id: \.offset) { _, line in
+                                styledShellLine(line)
+                                    .font(.system(size: 11, design: .monospaced))
+                            }
+                        }
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: true, vertical: true)
+                        .frame(minWidth: cardSize.width - 32, alignment: .topLeading)
+                        .padding(.horizontal, 8)
                         Color.clear.frame(height: 1).id("shellBottom")
                     }
                     .padding(.vertical, 4)
@@ -516,14 +575,51 @@ struct ContentView: View {
                     .textFieldStyle(.plain)
                     .focused($shellInputFocused)
                     .onSubmit {
+                        guard !shellInput.isEmpty else { return }
                         manager.sendShellInput(shellInput)
+                        if shellHistory.last != shellInput { shellHistory.append(shellInput) }
+                        shellHistoryIndex = nil
                         shellInput = ""
+                    }
+                    .onKeyPress(.upArrow) {
+                        guard !shellHistory.isEmpty else { return .ignored }
+                        let next = (shellHistoryIndex ?? shellHistory.count) - 1
+                        guard next >= 0 else { return .handled }
+                        shellHistoryIndex = next
+                        shellInput = shellHistory[next]
+                        return .handled
+                    }
+                    .onKeyPress(.downArrow) {
+                        guard let idx = shellHistoryIndex else { return .ignored }
+                        let next = idx + 1
+                        if next >= shellHistory.count {
+                            shellHistoryIndex = nil
+                            shellInput = ""
+                        } else {
+                            shellHistoryIndex = next
+                            shellInput = shellHistory[next]
+                        }
+                        return .handled
                     }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .background(Color(white: 0.1))
             .environment(\.colorScheme, .dark)
+        }
+    }
+
+    private func markUnread(_ newEntries: ArraySlice<LogEntry>) {
+        for entry in newEntries {
+            guard let sub = entry.subsystem else { continue }
+            let tab: LogTab = sub == .unbound ? .unbound : .reactNative
+            guard activeTab != tab else { continue }
+            let level: UnreadLevel = entry.level == "ERR" ? .error : .info
+            if sub == .unbound {
+                if level == .error || unboundUnread == .none { unboundUnread = level }
+            } else {
+                if level == .error || reactNativeUnread == .none { reactNativeUnread = level }
+            }
         }
     }
 
@@ -534,13 +630,25 @@ struct ContentView: View {
     }
 
     private func pathValid(_ path: String) -> Bool {  // #12
-        FileManager.default.fileExists(atPath: (path as NSString).expandingTildeInPath)
+        AppController.pathValid(path)
+    }
+
+    private func styledShellLine(_ line: ShellLine) -> Text {
+        guard !line.isEmpty else { return Text(" ") }
+        var result = AttributedString()
+        for segment in line.segments where !segment.text.isEmpty {
+            var run = AttributedString(segment.text)
+            run.foregroundColor = segment.color ?? .white
+            if segment.bold { run.inlinePresentationIntent = .stronglyEmphasized }
+            result += run
+        }
+        return Text(result)
     }
 
     private func copyShellOutput() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(
-            manager.shellLines.joined(separator: "\n"),
+            manager.shellLines.map(\.plain).joined(separator: "\n"),
             forType: .string
         )
     }

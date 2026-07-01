@@ -2,6 +2,29 @@ import AppKit
 
 extension AppController {
 
+    // Device SSH/sudo password — configurable in Settings, defaults to vphone's stock "alpine".
+    var sshPassword: String {
+        let stored = UserDefaults.standard.string(forKey: "sshPassword")
+        return (stored?.isEmpty == false) ? stored! : "alpine"
+    }
+
+    static func pathValid(_ path: String) -> Bool {
+        FileManager.default.fileExists(atPath: (path as NSString).expandingTildeInPath)
+    }
+
+    var autoAttachEnabled: Bool {
+        UserDefaults.standard.object(forKey: "autoAttachEnabled") as? Bool ?? true
+    }
+
+    var autoLaunchDiscordAfterBoot: Bool {
+        UserDefaults.standard.bool(forKey: "autoLaunchDiscordAfterBoot")
+    }
+
+    var logBufferSize: Int {
+        let v = UserDefaults.standard.integer(forKey: "logBufferSize")
+        return v > 0 ? v : 2000
+    }
+
     var enrichedEnvironment: [String: String] {
         var env  = ProcessInfo.processInfo.environment
         let home = NSHomeDirectory()
@@ -44,7 +67,7 @@ extension AppController {
 
     func run(ssh command: String) async -> Bool {
         await run(args: [
-            "sshpass", "-p", "alpine",
+            "sshpass", "-p", sshPassword,
             "ssh",
             "-p", "2222",
             "-o", "ConnectTimeout=5",

@@ -152,6 +152,47 @@ final class LogNSTextView: NSTextView {
     var timestampRanges:[(range: NSRange, fullTime: String)]              = []
     var popoverRanges:  [(range: NSRange, content: String, isCode: Bool)] = []
 
+    var onCopyLine:        ((LogEntry) -> Void)?
+    var onFilterToSource:  ((LogEntry) -> Void)?
+
+    // MARK: Row context menu (copy line / filter to source)
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let lm = layoutManager, let tc = textContainer else { return super.menu(for: event) }
+        let pt     = convert(event.locationInWindow, from: nil)
+        let origin = textContainerOrigin
+        let tcPt   = NSPoint(x: pt.x - origin.x, y: pt.y - origin.y)
+        var frac: CGFloat = 0
+        let gi = lm.glyphIndex(for: tcPt, in: tc, fractionOfDistanceThroughGlyph: &frac)
+        guard gi < lm.numberOfGlyphs else { return super.menu(for: event) }
+        let ci = lm.characterIndexForGlyph(at: gi)
+        guard let hit = entryRanges.first(where: { NSLocationInRange(ci, $0.range) }),
+              !hit.entry.isHeader else { return super.menu(for: event) }
+
+        pendingMenuEntry = hit.entry
+        let menu = NSMenu()
+        let copyItem = NSMenuItem(title: "Copy Line", action: #selector(copyLineAction), keyEquivalent: "")
+        copyItem.target = self
+        menu.addItem(copyItem)
+        let filterItem = NSMenuItem(title: "Filter to “\(hit.entry.source)”",
+                                     action: #selector(filterToSourceAction), keyEquivalent: "")
+        filterItem.target = self
+        menu.addItem(filterItem)
+        return menu
+    }
+
+    private var pendingMenuEntry: LogEntry?
+
+    @objc private func copyLineAction() {
+        guard let entry = pendingMenuEntry else { return }
+        onCopyLine?(entry)
+    }
+
+    @objc private func filterToSourceAction() {
+        guard let entry = pendingMenuEntry else { return }
+        onFilterToSource?(entry)
+    }
+
     // Keep a single tracking area (recreated whenever AppKit requests it) so
     // we receive mouseMoved events and can set the cursor dynamically.
     override func updateTrackingAreas() {
@@ -192,6 +233,8 @@ struct LogTextView: NSViewRepresentable {
     let entries:           [LogEntry]
     let highlightStartIdx: Int
     let scrollVersion:     Int
+    var searchQuery:       String = ""
+    var onFilterToSource:  ((LogEntry) -> Void)? = nil
 
     // Tab stops match LogEntryRow SwiftUI fixed-frame layout (textContainerInset.width = 8):
     //   timestamp 58pt frame + 6pt gap  → tab 1 at  64pt (abs  72pt) ✓
@@ -252,6 +295,12 @@ struct LogTextView: NSViewRepresentable {
               let storage = tv.textStorage else { return }
         let c = context.coordinator
 
+        tv.onCopyLine = { entry in
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(entry.asString(), forType: .string)
+        }
+        tv.onFilterToSource = onFilterToSource
+
         let result = buildContent()
         storage.setAttributedString(result.str)
         tv.entryRanges     = result.entryRanges
@@ -262,6 +311,21 @@ struct LogTextView: NSViewRepresentable {
         c.lastCount   = entries.count
         c.lastVersion = scrollVersion
         if shouldScroll { DispatchQueue.main.async { tv.scrollToEndOfDocument(nil) } }
+    }
+
+    // Case-insensitive NSRange occurrences of `query` within `haystack`, in NSString terms.
+    private func ranges(of query: String, in haystack: String) -> [NSRange] {
+        let ns = haystack as NSString
+        var results: [NSRange] = []
+        var searchRange = NSRange(location: 0, length: ns.length)
+        while searchRange.location < ns.length {
+            let found = ns.range(of: query, options: .caseInsensitive, range: searchRange)
+            guard found.location != NSNotFound else { break }
+            results.append(found)
+            searchRange = NSRange(location: found.location + found.length,
+                                  length: ns.length - (found.location + found.length))
+        }
+        return results
     }
 
     // MARK: - Content builder
@@ -364,7 +428,15 @@ struct LogTextView: NSViewRepresentable {
                                           isCode: popoverIsCode))
                 }
 
+                let msgStart = out.length
                 out.append(ns(displayMsg + "\n", font: body, color: .labelColor))
+                if !searchQuery.isEmpty {
+                    for range in ranges(of: searchQuery, in: displayMsg) {
+                        out.addAttribute(.backgroundColor,
+                                         value: NSColor.systemYellow.withAlphaComponent(0.4),
+                                         range: NSRange(location: msgStart + range.location, length: range.length))
+                    }
+                }
             }
 
             let rowRange = NSRange(location: rowStart, length: out.length - rowStart)

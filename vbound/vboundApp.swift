@@ -29,6 +29,17 @@ final class TerminatingWindowDelegate: NSObject, NSWindowDelegate {
     private func handleClose() {
         guard let ctrl = controller else { quit(); return }
 
+        if ctrl.buildPhase.isRunning {
+            let alert = NSAlert()
+            alert.messageText     = "Build in progress"
+            alert.informativeText = "vbound is currently building, uploading, or installing. " +
+                                    "Quitting now will interrupt it."
+            alert.alertStyle      = .warning
+            alert.addButton(withTitle: "Quit Anyway")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+
         if ctrl.bootedVphone && ctrl.vphoneDetected {
             let alert = NSAlert()
             alert.messageText     = "Shut down vphone?"
@@ -120,6 +131,10 @@ struct vboundApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var manager = AppController()
     @State private var aboutTokenBox = TokenBox()  // #17
+    @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
+    @AppStorage("unboundPath")   private var unboundPath   = NSHomeDirectory() + "/Developer/loader-ios"
+    @AppStorage("autoCheckForUpdates") private var autoCheckForUpdates = true
+    @AppStorage("updateCheckIntervalHours") private var updateCheckIntervalHours = 24
     @StateObject private var appUpdater: AppUpdater = {
         let updater = AppUpdater(owner: "unbound-app", repo: "vbound")
         #if DEBUG
@@ -138,7 +153,12 @@ struct vboundApp: App {
                 .environmentObject(appUpdater)
                 .task {
                     #if !DEBUG
-                    appUpdater.check()
+                    if autoCheckForUpdates { appUpdater.check() }
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .seconds(Double(updateCheckIntervalHours) * 3600))
+                        guard !Task.isCancelled, autoCheckForUpdates else { continue }
+                        appUpdater.check()
+                    }
                     #endif
                 }
         }
@@ -177,6 +197,28 @@ struct vboundApp: App {
                 }
                 .keyboardShortcut("u", modifiers: .command)
             }
+            CommandMenu("Actions") {
+                Button("Boot vphone") {
+                    manager.bootVphone(in: vphoneCliPath)
+                }
+                .keyboardShortcut("b", modifiers: .command)
+                .disabled(manager.vphoneDetected || !AppController.pathValid(vphoneCliPath))
+
+                Button("Build & Install") {
+                    manager.buildUnbound(in: unboundPath)
+                }
+                .keyboardShortcut("i", modifiers: .command)
+                .disabled(manager.buildPhase.isRunning || !AppController.pathValid(unboundPath))
+
+                Button(manager.isStreaming ? "Stop Log Stream" : "Start Log Stream") {
+                    if manager.isStreaming { manager.stopLogStream() } else { manager.startLogStream() }
+                }
+                .keyboardShortcut("l", modifiers: .command)
+            }
+        }
+
+        Settings {
+            SettingsView()
         }
     }
 }

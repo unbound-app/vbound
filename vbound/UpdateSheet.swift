@@ -10,6 +10,7 @@ import Version
 struct UpdateOverlay: View {
     @EnvironmentObject private var appUpdater: AppUpdater
     @Binding var isPresented: Bool
+    @AppStorage("skippedUpdateVersion") private var skippedUpdateVersion = ""
 
     @State private var changelog: String? = nil
     @State private var checkCompleted = false
@@ -113,9 +114,21 @@ struct UpdateOverlay: View {
         VStack(alignment: .leading, spacing: 14) {
             statusRow
             changelogView
-            if let release = phase.release, let url = URL(string: release.htmlUrl) {
-                Link("Release Notes ↗", destination: url)
+            HStack {
+                if let release = phase.release, let url = URL(string: release.htmlUrl) {
+                    Link("Release Notes ↗", destination: url)
+                        .font(.footnote)
+                }
+                Spacer()
+                if let release = phase.release {
+                    Button("Skip This Version") {
+                        skippedUpdateVersion = release.tagName.description
+                        close()
+                    }
+                    .buttonStyle(.link)
                     .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
             }
             Spacer(minLength: 0)
         }

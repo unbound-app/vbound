@@ -14,12 +14,15 @@ final class AppController: @unchecked Sendable {
     var buildProgress: Double = 0
     var logLines:        [LogEntry] = []
     var isStreaming      = false
-    var shellLines:      [String] = []
+    var shellLines:      [ShellLine] = []
     var isShellConnected = false
     var bootedVphone     = false
     var vphoneUDID:      String? = nil
 
     // MARK: - Internal state (accessible from extension files)
+
+    let shellBuffer = ANSILineBuffer()
+    var didAutoLaunchDiscord = false
 
     // ~/.ssh/ is created lazily here so ControlPath is always valid on first use (#8)
     static let sshControlPath: String = {
@@ -96,6 +99,7 @@ final class AppController: @unchecked Sendable {
             vphoneDetected = app != nil
             guard isAttached else { return }
             isAttached = false
+            guard autoAttachEnabled else { return }
             if let app, isVphoneMinimized(forPID: app.processIdentifier) {
                 ourWindow?.miniaturize(nil)
             } else if app == nil {
@@ -104,8 +108,17 @@ final class AppController: @unchecked Sendable {
             return
         }
         vphoneDetected = true
-        if !isAttached { ourWindow?.orderFront(nil) }
-        positionBeside(vphoneFrame)
+        let wasAttached = isAttached
+        if autoAttachEnabled {
+            if !isAttached { ourWindow?.orderFront(nil) }
+            positionBeside(vphoneFrame)
+        } else {
+            isAttached = true
+        }
+        if !wasAttached, bootedVphone, autoLaunchDiscordAfterBoot, !didAutoLaunchDiscord {
+            didAutoLaunchDiscord = true
+            launchDiscord()
+        }
     }
 
     private func findVphoneApp() -> NSRunningApplication? {

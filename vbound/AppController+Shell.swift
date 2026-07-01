@@ -5,7 +5,8 @@ extension AppController {
     func connectShell() {
         guard !isShellConnected else { return }
         shellAutoReconnect = true  // #6: cleared by disconnectShell() for deliberate disconnects
-        shellLines = []
+        shellBuffer.reset()
+        shellLines = shellBuffer.lines
 
         Task { [weak self] in
             guard let self else { return }
@@ -14,7 +15,7 @@ extension AppController {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
             p.arguments = [
-                "sshpass", "-p", "alpine",
+                "sshpass", "-p", sshPassword,
                 "ssh", "-tt",
                 "-p", "2222",
                 "-o", "StrictHostKeyChecking=no",
@@ -37,50 +38,14 @@ extension AppController {
                 let data = handle.availableData
                 guard !data.isEmpty, let raw = String(data: data, encoding: .utf8) else { return }
 
-                let ansiCsi = /\u{1B}\[[ -?]*[@-~]/
-                let ansiEsc = /\u{1B}[^\[]/
-                let stripped = raw
-                    .replacing(ansiCsi, with: "")
-                    .replacing(ansiEsc, with: "")
-
                 // DispatchQueue.main.async puts us on the main thread.
                 // assumeIsolated registers that fact with the Swift actor runtime so
                 // @Observable property accesses don't trap under Swift 6 (#10).
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     MainActor.assumeIsolated {
-                        // Work on a local copy — single @Observable mutation at the end (#1)
-                        var lines = self.shellLines
-                        var i = stripped.startIndex
-                        while i < stripped.endIndex {
-                            let c  = stripped[i]
-                            let ni = stripped.index(after: i)
-                            switch c {
-                            case "\r":
-                                if ni < stripped.endIndex && stripped[ni] == "\n" {
-                                    lines.append("")
-                                    i = stripped.index(after: ni)
-                                } else {
-                                    if lines.isEmpty { lines.append("") }
-                                    let hadContent = !lines[lines.count - 1].isEmpty
-                                    lines[lines.count - 1] = ""
-                                    if hadContent && lines.dropLast().contains(where: { !$0.isEmpty }) {
-                                        lines.insert("", at: lines.count - 1)
-                                    }
-                                    i = ni
-                                }
-                            case "\n":
-                                lines.append("")
-                                i = ni
-                            default:
-                                if lines.isEmpty { lines.append("") }
-                                lines[lines.count - 1].append(c)
-                                i = ni
-                            }
-                        }
-                        // removeFirst avoids a full array copy vs Array(suffix(n)) (#3)
-                        if lines.count > 2000 { lines.removeFirst(lines.count - 2000) }
-                        self.shellLines = lines  // single mutation
+                        self.shellBuffer.feed(raw, maxLines: self.logBufferSize)
+                        self.shellLines = self.shellBuffer.lines  // single mutation
                     }
                 }
             }
