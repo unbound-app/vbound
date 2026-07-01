@@ -37,7 +37,7 @@ jobs:
 
             - name: Build macOS app
               run: |
-                  xcodebuild archive -scheme "vbound" -configuration "Release" -archivePath "build/vbound.xcarchive" -destination "generic/platform=macOS,name=Any Mac" CODE_SIGN_IDENTITY="${{ steps.cert.outputs.codesign-identity }}" | xcbeautify
+                  xcodebuild archive -scheme "vbound" -configuration "Release" -archivePath "build/vbound.xcarchive" -destination "generic/platform=macOS,name=Any Mac" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="${{ steps.cert.outputs.codesign-identity }}" PROVISIONING_PROFILE_SPECIFIER="" | xcbeautify
 
             # - name: Notarize and package app
             #   run: |

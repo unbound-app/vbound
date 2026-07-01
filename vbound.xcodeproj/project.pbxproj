@@ -25,9 +25,11 @@
 /* Begin PBXFrameworksBuildPhase section */
 		3A70EE562FEDF322003EE09D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 				3AC3492A2FF46B92006A1959 /* AppUpdater in Frameworks */,
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
@@ -61,6 +63,8 @@
 			);
 			buildRules = (
 			);
+			dependencies = (
+			);
 			fileSystemSynchronizedGroups = (
 				3A70EE5B2FEDF322003EE09D /* vbound */,
 			);
@@ -80,7 +84,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2600;
-				LastUpgradeCheck = 2600;
+				LastUpgradeCheck = 2660;
 				TargetAttributes = {
 					3A70EE582FEDF322003EE09D = {
 						CreatedOnToolsVersion = 26.0;
@@ -112,21 +116,25 @@
 /* Begin PBXResourcesBuildPhase section */
 		3A70EE572FEDF322003EE09D /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		3A70EE552FEDF322003EE09D /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		3A70EE622FEDF323003EE09D /* Debug configuration for PBXProject "vbound" */ = {
+		3A70EE622FEDF323003EE09D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -160,6 +168,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = L988J7YMK5;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -180,7 +189,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -190,7 +199,7 @@
 			};
 			name = Debug;
 		};
-		3A70EE632FEDF323003EE09D /* Release configuration for PBXProject "vbound" */ = {
+		3A70EE632FEDF323003EE09D /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -224,6 +233,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = L988J7YMK5;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -238,7 +248,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -246,7 +256,7 @@
 			};
 			name = Release;
 		};
-		3A70EE652FEDF323003EE09D /* Debug configuration for PBXNativeTarget "vbound" */ = {
+		3A70EE652FEDF323003EE09D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -255,6 +265,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = L988J7YMK5;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -266,6 +277,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.adrian.vbound;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -279,7 +291,7 @@
 			};
 			name = Debug;
 		};
-		3A70EE662FEDF323003EE09D /* Release configuration for PBXNativeTarget "vbound" */ = {
+		3A70EE662FEDF323003EE09D /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -288,6 +300,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = L988J7YMK5;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -299,6 +312,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.adrian.vbound;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -318,17 +332,19 @@
 		3A70EE542FEDF322003EE09D /* Build configuration list for PBXProject "vbound" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				3A70EE622FEDF323003EE09D /* Debug configuration for PBXProject "vbound" */,
-				3A70EE632FEDF323003EE09D /* Release configuration for PBXProject "vbound" */,
+				3A70EE622FEDF323003EE09D /* Debug */,
+				3A70EE632FEDF323003EE09D /* Release */,
 			);
+			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 		3A70EE642FEDF323003EE09D /* Build configuration list for PBXNativeTarget "vbound" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				3A70EE652FEDF323003EE09D /* Debug configuration for PBXNativeTarget "vbound" */,
-				3A70EE662FEDF323003EE09D /* Release configuration for PBXNativeTarget "vbound" */,
+				3A70EE652FEDF323003EE09D /* Debug */,
+				3A70EE662FEDF323003EE09D /* Release */,
 			);
+			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
@@ -353,5 +369,4 @@
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 3A70EE512FEDF322003EE09D /* Project object */;
-	validationLevel = 1;
 }
