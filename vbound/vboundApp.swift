@@ -82,6 +82,26 @@ final class TerminatingWindowDelegate: NSObject, NSWindowDelegate {
     }
 }
 
+// MARK: - App delegate for guaranteed process cleanup on all quit paths
+// applicationWillTerminate fires for every quit route (⌘Q, dock, close button,
+// force-quit, etc.) so processes are always cleaned up even if TerminatingWindowDelegate
+// somehow does not fire (e.g. macOS 26 SwiftUI window management changes).
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillTerminate(_ notification: Notification) {
+        guard let ctrl = AppController.current else { return }
+        ctrl.stop()
+        ctrl.shellProcess?.terminate()
+        ctrl.forwardProcess?.terminate()
+        let mux = Process()
+        mux.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        mux.arguments     = ["ssh", "-O", "exit",
+                             "-o", "ControlPath=\(AppController.sshControlPath)",
+                             "mobile@127.0.0.1"]
+        try? mux.run()
+        mux.waitUntilExit()
+    }
+}
+
 // MARK: - Observer token box (#17)
 // Wraps the NotificationCenter observer token in a reference type so it has a
 // stable identity independent of the App struct's value semantics.
@@ -97,6 +117,7 @@ extension Notification.Name {
 
 @main
 struct vboundApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var manager = AppController()
     @State private var aboutTokenBox = TokenBox()  // #17
     @StateObject private var appUpdater: AppUpdater = {

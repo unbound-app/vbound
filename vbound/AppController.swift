@@ -45,8 +45,13 @@ final class AppController: @unchecked Sendable {
 
     // MARK: - Lifecycle
 
+    // Weak ref used by AppDelegate.applicationWillTerminate to reach the controller
+    // regardless of which quit path fired (⌘Q, dock, close button, etc.)
+    private(set) static weak var current: AppController?
+
     func start() {
         guard pollTimer == nil else { return }
+        AppController.current = self
         let t = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.checkAndAttach() }
         }

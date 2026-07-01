@@ -42,7 +42,7 @@ struct ContentView: View {
                 window.contentMaxSize = cardSize
                 window.setContentSize(cardSize)
                 window.level = .floating
-                window.collectionBehavior = [.canJoinAllSpaces, .transient]
+                window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
                 manager.ourWindow = window
                 // Replace window delegate with a proxy that quits on close.
                 // windowShouldClose intercepts SwiftUI's hide-instead-of-close behaviour;
