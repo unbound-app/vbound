@@ -1,56 +1,36 @@
-name: Build and Release App
+name: Check Version Bump
 
 on:
-    workflow_dispatch:
+    push:
+        branches: [main]
 
 jobs:
-    release:
-        runs-on: macos-26
-
+    check:
+        runs-on: ubuntu-latest
+        outputs:
+            bumped: ${{ steps.check.outputs.bumped }}
         steps:
             - name: Checkout code
               uses: actions/checkout@v7
               with:
-                  fetch-depth: 0
+                  fetch-depth: 2
 
-            - name: Xcode Select Version
-              uses: maxim-lobanov/setup-xcode@v1
-              with:
-                  xcode-version: latest
-
-            - name: Fetch Signing Assets
-              uses: castdrian/setup-apple-certificate@main
-              id: cert
-              with:
-                  app-store-connect-key-id: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-                  app-store-connect-issuer-id: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-                  app-store-connect-private-key: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
-                  distribution-private-key: ${{ secrets.DISTRIBUTION_PRIVATE_KEY_BASE64 }}
-                  bundle-identifier: dev.adrian.vbound
-                  certificate-type: DEVELOPER_ID
-
-            - name: Install Signing Assets
-              uses: apple-actions/import-codesign-certs@v2
-              with:
-                  p12-file-base64: ${{ steps.cert.outputs.p12-certificate-base64 }}
-                  p12-password: ${{ steps.cert.outputs.p12-password }}
-
-            - name: Build macOS app
+            - name: Check version bump
+              id: check
               run: |
-                  xcodebuild archive -scheme "vbound" -configuration "Release" -archivePath "build/vbound.xcarchive" -destination "generic/platform=macOS,name=Any Mac" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="${{ steps.cert.outputs.codesign-identity }}" PROVISIONING_PROFILE_SPECIFIER="" | xcbeautify
+                  CURRENT=$(grep -m1 'MARKETING_VERSION' vbound.xcodeproj/project.pbxproj | tr -d ' ;' | cut -d= -f2)
+                  PREVIOUS=$(git show HEAD~1:vbound.xcodeproj/project.pbxproj | grep -m1 'MARKETING_VERSION' | tr -d ' ;' | cut -d= -f2)
+                  echo "Current: $CURRENT, Previous: $PREVIOUS"
+                  if [ "$CURRENT" != "$PREVIOUS" ] && [ "$(printf '%s\n' "$PREVIOUS" "$CURRENT" | sort -V | tail -n1)" = "$CURRENT" ]; then
+                    echo "bumped=true" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "bumped=false" >> "$GITHUB_OUTPUT"
+                  fi
 
-            # - name: Notarize and package app
-            #   run: |
-            #       xcrun notarytool submit "$DMG_FILE" --wait --apple-id "${{ secrets.NOTARIZATION_USERNAME }}" --password "${{ secrets.NOTARIZATION_PASSWORD }}" --team-id "L988J7YMK5"
-            #       xcrun stapler staple "$DMG_FILE"
-
-            # - name: Create GitHub Release
-            #   uses: softprops/action-gh-release@v2
-            #   with:
-            #       tag_name: ${{ steps.semver.outputs.next }}
-            #       generate_release_notes: true
-            #       files: ./build/*.zip
-            #       fail_on_unmatched_files: true
-            #       token: ${{ env.GITHUB_TOKEN }}
-            #   env:
-            #       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    release:
+        needs: check
+        if: needs.check.outputs.bumped == 'true'
+        uses: ./.github/workflows/release.yml
+        secrets: inherit
+        permissions:
+            contents: write
