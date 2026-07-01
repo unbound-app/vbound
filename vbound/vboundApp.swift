@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import AppUpdater
 
 // MARK: - Window delegate that quits the app on close
 
@@ -83,15 +84,44 @@ final class TerminatingWindowDelegate: NSObject, NSWindowDelegate {
 
 // MARK: - App entry point
 
+extension Notification.Name {
+    static let checkForUpdates = Notification.Name("vbound.checkForUpdates")
+}
+
 @main
 struct vboundApp: App {
     @State private var manager = AppController()
+    @StateObject private var appUpdater: AppUpdater = {
+        let updater = AppUpdater(owner: "unbound-app", repo: "vbound")
+        #if DEBUG
+        if let mockURL = Bundle.main.url(forResource: "releases.mock", withExtension: "json") {
+            updater.provider = MockReleaseProvider(source: .fileURL(mockURL))
+        }
+        updater.skipCodeSignValidation = true
+        #endif
+        return updater
+    }()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(manager)
+                .environmentObject(appUpdater)
+                .task {
+                    #if !DEBUG
+                    appUpdater.check()
+                    #endif
+                }
         }
         .windowResizability(.contentSize)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") {
+                    appUpdater.check()
+                    NotificationCenter.default.post(name: .checkForUpdates, object: nil)
+                }
+                .keyboardShortcut("u", modifiers: .command)
+            }
+        }
     }
 }

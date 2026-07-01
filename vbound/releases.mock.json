@@ -1,0 +1,16 @@
+[
+  {
+    "tag_name": "99.0.0",
+    "prerelease": false,
+    "assets": [
+      {
+        "name": "vbound-99.0.0.zip",
+        "browser_download_url": "https://example.com/downloads/vbound-99.0.0.zip",
+        "content_type": "application/zip"
+      }
+    ],
+    "body": "<!-- au:lang=en -->\n- Test update via mock provider\n<!-- au:end -->",
+    "name": "v99.0.0",
+    "html_url": "https://github.com/unbound-app/vbound/releases/latest"
+  }
+]

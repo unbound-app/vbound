@@ -1,12 +1,15 @@
 import SwiftUI
 import AppKit
+import AppUpdater
 
 private let cardSize = NSSize(width: 600, height: 660)
 
 struct ContentView: View {
     @Environment(AppController.self) var manager
+    @EnvironmentObject private var appUpdater: AppUpdater
     @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
     @AppStorage("unboundPath")   private var unboundPath   = NSHomeDirectory() + "/Developer/loader-ios"
+    @State private var showUpdateSheet = false
 
     @State private var logSearch         = ""
     @State private var showINF           = true
@@ -63,6 +66,17 @@ struct ContentView: View {
                 try? await Task.sleep(for: .milliseconds(1400))
                 withAnimation(.easeOut(duration: 0.9)) { highlightStartIdx = -1 }
             }
+        }
+        .sheet(isPresented: $showUpdateSheet) {
+            UpdateSheet()
+                .environmentObject(appUpdater)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .checkForUpdates)) { _ in
+            showUpdateSheet = true
+        }
+        .onReceive(appUpdater.$state) { state in
+            if case .none = state { return }
+            if !showUpdateSheet { showUpdateSheet = true }
         }
     }
 
