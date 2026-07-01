@@ -96,6 +96,7 @@ final class AppController: @unchecked Sendable {
         guard let vphoneFrame = findVphoneWindowFrame() else {
             // vphoneDetected = process running (true even when minimized)
             vphoneDetected = app != nil
+            updateWindowTitle()
             guard isAttached else { return }
             isAttached = false
             guard autoAttachEnabled else { return }
@@ -113,6 +114,21 @@ final class AppController: @unchecked Sendable {
         } else {
             isAttached = true
         }
+        updateWindowTitle()
+    }
+
+    // The titlebar otherwise just shows the static app name with a lot of unused
+    // width next to the traffic lights — surface the resolved device identifier
+    // there once known, since it isn't shown anywhere else in the UI.
+    private func updateWindowTitle() {
+        guard let window = ourWindow else { return }
+        let newTitle: String
+        if vphoneDetected, let udid = vphoneUDID {
+            newTitle = "vbound · \(udid)"
+        } else {
+            newTitle = "vbound"
+        }
+        if window.title != newTitle { window.title = newTitle }
     }
 
     private func findVphoneApp() -> NSRunningApplication? {

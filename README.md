@@ -5,14 +5,14 @@
 
 macOS floating panel that attaches to the vphone window and streamlines Unbound development: boot the virtual device, build and deploy the tweak over SSH, and stream live device logs.
 
-![vbound](https://adriancastro.dev/teh7wd8ywezj.png)
+![vbound](https://adriancastro.dev/nc844bt4jw9d.png)
 
 ## Requirements
 
 - macOS 26+
 - [vphone-cli](https://github.com/nickcoutsos/vphone) — virtual iPhone environment
 - [loader-ios](https://github.com/unbound-app/loader-ios) — Unbound tweak source
-- [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) — `pip install pymobiledevice3`
+- [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) — `pipx install pymobiledevice3`
 - [sshpass](https://formulae.brew.sh/formula/sshpass) — `brew install sshpass`
 
 ## Building

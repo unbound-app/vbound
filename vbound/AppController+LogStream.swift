@@ -146,7 +146,7 @@ extension AppController {
         else {
             let which = await runCapture(args: ["which", "pymobiledevice3"])
             if which.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return (nil, [err("pymobiledevice3 not found — pip install pymobiledevice3")])
+                return (nil, [err("pymobiledevice3 not found — pipx install pymobiledevice3")])
             }
             return (nil, [err("no devices found — is vphone running?")])
         }

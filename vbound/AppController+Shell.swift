@@ -84,9 +84,9 @@ extension AppController {
         handle.write(data)
     }
 
-    func sendShellInterrupt() {
+    func sendShellControlByte(_ byte: UInt8) {
         guard let handle = shellInputHandle else { return }
-        handle.write(Data([0x03]))  // ETX = Ctrl+C
+        handle.write(Data([byte]))
     }
 
     func disconnectShell() {

@@ -67,17 +67,18 @@ final class TerminatingWindowDelegate: NSObject, NSWindowDelegate {
 
     private func quit(_ ctrl: AppController? = nil) {
         ctrl?.stop()
-        ctrl?.shellProcess?.terminate()
-        ctrl?.forwardProcess?.terminate()
-        // Kill the SSH multiplexer master process (ControlPersist=60 keeps it alive
-        // for 60 s after the last client disconnects, which leaves a background process)
+        terminateWithChildren(ctrl?.shellProcess)
+        terminateWithChildren(ctrl?.forwardProcess)
+        // Ask the SSH multiplexer master to exit too (ControlPersist=60 would otherwise
+        // leave it running for a minute after the last client disconnects). Fire-and-forget:
+        // waiting here would block the whole app quit if the control socket doesn't
+        // respond, which is exactly what left vbound "running in the background" before.
         let mux = Process()
         mux.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         mux.arguments     = ["ssh", "-O", "exit",
                              "-o", "ControlPath=\(AppController.sshControlPath)",  // #8
                              "mobile@127.0.0.1"]
         try? mux.run()
-        mux.waitUntilExit()
         NSApp.terminate(nil)
     }
 
@@ -101,16 +102,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         guard let ctrl = AppController.current else { return }
         ctrl.stop()
-        ctrl.shellProcess?.terminate()
-        ctrl.forwardProcess?.terminate()
+        terminateWithChildren(ctrl.shellProcess)
+        terminateWithChildren(ctrl.forwardProcess)
         let mux = Process()
         mux.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         mux.arguments     = ["ssh", "-O", "exit",
                              "-o", "ControlPath=\(AppController.sshControlPath)",
                              "mobile@127.0.0.1"]
         try? mux.run()
-        mux.waitUntilExit()
     }
+}
+
+// `sshpass`/`pymobiledevice3` wrappers can fork a real child (e.g. sshpass execs ssh as a
+// separate process) that never receives SIGTERM when we only signal the wrapper we tracked —
+// that orphaned child is exactly what survives after quitting and shows up as vbound still
+// "running in the background". Reap any children explicitly alongside the wrapper itself.
+func terminateWithChildren(_ process: Process?) {
+    guard let process, process.isRunning else { return }
+    let pid = process.processIdentifier
+    process.terminate()
+    let reap = Process()
+    reap.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+    reap.arguments = ["-TERM", "-P", "\(pid)"]
+    try? reap.run()
 }
 
 // MARK: - Observer token box (#17)

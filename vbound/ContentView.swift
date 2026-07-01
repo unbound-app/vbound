@@ -3,7 +3,7 @@ import AppKit
 import AppUpdater
 import Version
 
-private let cardSize = NSSize(width: 600, height: 540)
+private let cardSize = NSSize(width: 600, height: 505)
 
 struct ContentView: View {
     @Environment(AppController.self) var manager
@@ -36,11 +36,16 @@ struct ContentView: View {
         VStack(spacing: 0) {
             statusStrip
             Divider()
-            midSection
-            Divider()
             logsSection
         }
         .frame(width: cardSize.width, height: cardSize.height)
+        .overlay(alignment: .bottom) {
+            if manager.buildPhase.isActive {
+                buildProgressOverlay
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: manager.buildPhase.isActive)
         .background(
             WindowAccessor { window in
                 window.styleMask.remove(.resizable)
@@ -117,13 +122,14 @@ struct ContentView: View {
             Text(statusText)
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
 
-            Spacer()
+            Spacer(minLength: 8)
 
             Button {
                 manager.bootVphone(in: vphoneCliPath)
             } label: {
-                Image(systemName: "power")
+                Label("Boot", systemImage: "power")
             }
             .buttonStyle(.borderedProminent)
             .disabled(manager.vphoneDetected || !pathValid(vphoneCliPath))
@@ -132,7 +138,7 @@ struct ContentView: View {
             Button {
                 showShutdownConfirm = true
             } label: {
-                Image(systemName: "stop.fill")
+                Label("Stop", systemImage: "stop.fill")
             }
             .buttonStyle(.bordered)
             .tint(.red)
@@ -148,7 +154,7 @@ struct ContentView: View {
             Button {
                 manager.launchDiscord()
             } label: {
-                Image(systemName: "bubble.left.fill")
+                Label("Discord", systemImage: "bubble.left.fill")
             }
             .buttonStyle(.bordered)
             .help("Launch Discord")
@@ -156,13 +162,13 @@ struct ContentView: View {
             Button {
                 manager.buildUnbound(in: unboundPath)
             } label: {
-                Image(systemName: "hammer.fill")
+                Label("Build", systemImage: "hammer.fill")
             }
             .buttonStyle(.bordered)
             .disabled(manager.buildPhase.isRunning || !pathValid(unboundPath))
             .help("Build & Install")
 
-            Divider().frame(height: 14)
+            Divider().frame(height: 16)
 
             Button {
                 presentAboveFloatingPanels(tokenBox: settingsTokenBox) { openSettings() }
@@ -177,22 +183,15 @@ struct ContentView: View {
         .padding(.vertical, 8)
     }
 
-    // MARK: - Mid section (build progress, thin strip)
+    // MARK: - Build progress (floats over the bottom of the log/shell area)
 
     @ViewBuilder
-    private var midSection: some View {
-        Group {
-            if manager.buildPhase.isActive {
-                progressSection
-                    .transition(.opacity)
-            } else {
-                Color.clear
-            }
-        }
-        .animation(.easeInOut(duration: 0.2), value: manager.buildPhase.isActive)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34)
+    private var buildProgressOverlay: some View {
+        progressSection
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.regularMaterial)
+            .overlay(alignment: .top) { Divider() }
     }
 
     @ViewBuilder
@@ -309,6 +308,10 @@ struct ContentView: View {
             .padding(.vertical, 4)
             .background(Color(.controlBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.secondary.opacity(0.25), lineWidth: 0.5)
+            )
 
             LevelFilter(label: "INF", on: $showINF, color: .blue)
                 .help("Show/hide Info messages")
@@ -441,7 +444,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private var shellToolbar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             // SSH target — expands like the log search field
             HStack(spacing: 5) {
                 Image(systemName: "terminal")
@@ -450,7 +453,8 @@ struct ContentView: View {
                 Text(manager.isShellConnected ? "mobile@127.0.0.1:2222" : "not connected")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
-                Spacer()
+                    .lineLimit(1)
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
@@ -458,14 +462,25 @@ struct ContentView: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
 
             Group {
-                Button { manager.sendShellInterrupt() } label: {
-                    Image(systemName: "stop.circle")
+                ForEach(terminalControlKeys, id: \.label) { control in
+                    Button {
+                        manager.sendShellControlByte(control.byte)
+                    } label: {
+                        Text(control.label)
+                            .font(.system(size: 10, design: .monospaced))
+                            .fixedSize()
+                    }
+                    .help(control.help)
+                    .disabled(!manager.isShellConnected)
                 }
-                .help("Send Ctrl+C (interrupt)")
-                .disabled(!manager.isShellConnected)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.mini)
+            .layoutPriority(1)
 
-                Divider().frame(height: 16)
+            Divider().frame(height: 16)
 
+            Group {
                 Button { shellScrollVersion += 1 } label: {
                     Image(systemName: "arrow.down.to.line")
                 }
@@ -487,6 +502,7 @@ struct ContentView: View {
             }
             .buttonStyle(.borderless)
             .font(.system(size: 14))
+            .layoutPriority(1)
 
             Divider().frame(height: 16)
 
@@ -504,6 +520,8 @@ struct ContentView: View {
                 .tint(manager.isShellConnected ? .red : Color.accentColor)
                 .help(manager.isShellConnected ? "Disconnect SSH session" : "Connect SSH session")
             }
+            .fixedSize()
+            .layoutPriority(2)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 9)
@@ -628,6 +646,17 @@ struct ContentView: View {
         }
         return Text(result)
     }
+
+    // Plain ASCII "^" rather than the Unicode "⌃" modifier glyph — that symbol is
+    // designed to render as a tiny mark meant for NSMenuItem key-equivalent display,
+    // not as normal-sized text in a button label.
+    private let terminalControlKeys: [(label: String, byte: UInt8, help: String)] = [
+        ("^C",  0x03, "Send Ctrl+C (interrupt)"),
+        ("^D",  0x04, "Send Ctrl+D (EOF)"),
+        ("^Z",  0x1A, "Send Ctrl+Z (suspend)"),
+        ("^L",  0x0C, "Clear screen"),
+        ("Tab", 0x09, "Send Tab (autocomplete)"),
+    ]
 
     private func copyShellOutput() {
         NSPasteboard.general.clearContents()
