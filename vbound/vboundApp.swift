@@ -115,7 +115,28 @@ struct vboundApp: App {
         }
         .windowResizability(.contentSize)
         .commands {
-            CommandGroup(after: .appInfo) {
+            CommandGroup(replacing: .appInfo) {
+                Button("About vbound") {
+                    NSApp.activate(ignoringOtherApps: true)
+                    // Lower our floating windows so the About panel appears above them
+                    let floatingWins = NSApp.windows.filter { $0.level == .floating }
+                    floatingWins.forEach { $0.level = .normal }
+                    NSApp.orderFrontStandardAboutPanel(nil)
+                    // Restore floating level when the About panel closes
+                    var token: NSObjectProtocol?
+                    token = NotificationCenter.default.addObserver(
+                        forName: NSWindow.willCloseNotification,
+                        object: nil,
+                        queue: .main
+                    ) { notification in
+                        guard let closed = notification.object as? NSWindow,
+                              !floatingWins.contains(closed) else { return }
+                        floatingWins.forEach { $0.level = .floating }
+                        token.map { NotificationCenter.default.removeObserver($0) }
+                        token = nil
+                    }
+                }
+                Divider()
                 Button("Check for Updates…") {
                     appUpdater.check()
                     NotificationCenter.default.post(name: .checkForUpdates, object: nil)
