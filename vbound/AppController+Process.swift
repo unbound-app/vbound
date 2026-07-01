@@ -16,10 +16,6 @@ extension AppController {
         UserDefaults.standard.object(forKey: "autoAttachEnabled") as? Bool ?? true
     }
 
-    var autoLaunchDiscordAfterBoot: Bool {
-        UserDefaults.standard.bool(forKey: "autoLaunchDiscordAfterBoot")
-    }
-
     var logBufferSize: Int {
         let v = UserDefaults.standard.integer(forKey: "logBufferSize")
         return v > 0 ? v : 2000

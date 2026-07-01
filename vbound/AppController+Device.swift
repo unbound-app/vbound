@@ -4,7 +4,6 @@ extension AppController {
 
     func bootVphone(in directory: String) {
         bootedVphone = true
-        didAutoLaunchDiscord = false
         let dirPath = (directory as NSString).expandingTildeInPath
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")

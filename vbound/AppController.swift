@@ -22,7 +22,6 @@ final class AppController: @unchecked Sendable {
     // MARK: - Internal state (accessible from extension files)
 
     let shellBuffer = ANSILineBuffer()
-    var didAutoLaunchDiscord = false
 
     // ~/.ssh/ is created lazily here so ControlPath is always valid on first use (#8)
     static let sshControlPath: String = {
@@ -108,16 +107,11 @@ final class AppController: @unchecked Sendable {
             return
         }
         vphoneDetected = true
-        let wasAttached = isAttached
         if autoAttachEnabled {
             if !isAttached { ourWindow?.orderFront(nil) }
             positionBeside(vphoneFrame)
         } else {
             isAttached = true
-        }
-        if !wasAttached, bootedVphone, autoLaunchDiscordAfterBoot, !didAutoLaunchDiscord {
-            didAutoLaunchDiscord = true
-            launchDiscord()
         }
     }
 

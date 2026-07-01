@@ -116,8 +116,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 // MARK: - Observer token box (#17)
 // Wraps the NotificationCenter observer token in a reference type so it has a
 // stable identity independent of the App struct's value semantics.
-private final class TokenBox {
+final class TokenBox {
     var token: NSObjectProtocol?
+}
+
+// Our main window runs at `.floating` level so it stays above the vphone window it's
+// snapped to — but that also means any ordinary window (About panel, Settings) opens
+// *behind* it. This temporarily drops floating windows to `.normal` for the duration,
+// restoring them once the presented window closes. `tokenBox` de-dupes repeat triggers
+// (e.g. opening Settings again before the previous one closed) the same way #17 does.
+func presentAboveFloatingPanels(tokenBox: TokenBox, open: () -> Void) {
+    NSApp.activate(ignoringOtherApps: true)
+    let floatingWins = NSApp.windows.filter { $0.level == .floating }
+    floatingWins.forEach { $0.level = .normal }
+
+    if let prev = tokenBox.token {
+        NotificationCenter.default.removeObserver(prev)
+        tokenBox.token = nil
+    }
+    open()
+    let box = tokenBox
+    box.token = NotificationCenter.default.addObserver(
+        forName: NSWindow.willCloseNotification, object: nil, queue: .main
+    ) { notification in
+        guard let closed = notification.object as? NSWindow, !floatingWins.contains(closed) else { return }
+        floatingWins.forEach { $0.level = .floating }
+        if let t = box.token { NotificationCenter.default.removeObserver(t) }
+        box.token = nil
+    }
 }
 
 // MARK: - App entry point
@@ -131,6 +157,8 @@ struct vboundApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var manager = AppController()
     @State private var aboutTokenBox = TokenBox()  // #17
+    @State private var settingsTokenBox = TokenBox()
+    @Environment(\.openSettings) private var openSettings
     @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
     @AppStorage("unboundPath")   private var unboundPath   = NSHomeDirectory() + "/Developer/loader-ios"
     @AppStorage("autoCheckForUpdates") private var autoCheckForUpdates = true
@@ -166,28 +194,8 @@ struct vboundApp: App {
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About vbound") {
-                    NSApp.activate(ignoringOtherApps: true)
-                    let floatingWins = NSApp.windows.filter { $0.level == .floating }
-                    floatingWins.forEach { $0.level = .normal }
-                    NSApp.orderFrontStandardAboutPanel(nil)
-                    // Remove any leftover observer from a previous About-panel open (#17)
-                    if let prev = aboutTokenBox.token {
-                        NotificationCenter.default.removeObserver(prev)
-                        aboutTokenBox.token = nil
-                    }
-                    // TokenBox gives the observer closure a stable reference to its own
-                    // token without relying on a local `var` that falls out of scope (#17).
-                    let box = aboutTokenBox
-                    box.token = NotificationCenter.default.addObserver(
-                        forName: NSWindow.willCloseNotification,
-                        object: nil,
-                        queue: .main
-                    ) { [box] notification in
-                        guard let closed = notification.object as? NSWindow,
-                              !floatingWins.contains(closed) else { return }
-                        floatingWins.forEach { $0.level = .floating }
-                        if let t = box.token { NotificationCenter.default.removeObserver(t) }
-                        box.token = nil
+                    presentAboveFloatingPanels(tokenBox: aboutTokenBox) {
+                        NSApp.orderFrontStandardAboutPanel(nil)
                     }
                 }
                 Divider()
@@ -196,6 +204,14 @@ struct vboundApp: App {
                     NotificationCenter.default.post(name: .checkForUpdates, object: nil)
                 }
                 .keyboardShortcut("u", modifiers: .command)
+            }
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    presentAboveFloatingPanels(tokenBox: settingsTokenBox) {
+                        openSettings()
+                    }
+                }
+                .keyboardShortcut(",", modifiers: .command)
             }
             CommandMenu("Actions") {
                 Button("Boot vphone") {

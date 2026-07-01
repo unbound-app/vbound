@@ -3,7 +3,7 @@ import AppKit
 import AppUpdater
 import Version
 
-private let cardSize = NSSize(width: 600, height: 660)
+private let cardSize = NSSize(width: 600, height: 540)
 
 struct ContentView: View {
     @Environment(AppController.self) var manager
@@ -28,13 +28,13 @@ struct ContentView: View {
     @State private var reactNativeUnread : UnreadLevel = .none
     @State private var shellHistory      : [String] = []
     @State private var shellHistoryIndex : Int? = nil
+    @State private var settingsTokenBox  = TokenBox()
+    @Environment(\.openSettings) private var openSettings
     @FocusState private var shellInputFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
             statusStrip
-            Divider()
-            actionButtons
             Divider()
             midSection
             Divider()
@@ -105,7 +105,7 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Status strip
+    // MARK: - Status strip (status + all primary actions, one line)
 
     @ViewBuilder
     private var statusStrip: some View {
@@ -117,119 +117,99 @@ struct ContentView: View {
             Text(statusText)
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
+
             Spacer()
+
+            Button {
+                manager.bootVphone(in: vphoneCliPath)
+            } label: {
+                Image(systemName: "power")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(manager.vphoneDetected || !pathValid(vphoneCliPath))
+            .help("Boot vphone")
+
+            Button {
+                showShutdownConfirm = true
+            } label: {
+                Image(systemName: "stop.fill")
+            }
+            .buttonStyle(.bordered)
+            .tint(.red)
+            .disabled(!manager.vphoneDetected)
+            .help("Shut down vphone")
+            .confirmationDialog("Shut down vphone?", isPresented: $showShutdownConfirm) {
+                Button("Shut Down", role: .destructive) { manager.shutdownVphone() }
+                Button("Cancel",    role: .cancel) {}
+            } message: {
+                Text("This will power off the virtual phone.")
+            }
+
+            Button {
+                manager.launchDiscord()
+            } label: {
+                Image(systemName: "bubble.left.fill")
+            }
+            .buttonStyle(.bordered)
+            .help("Launch Discord")
+
+            Button {
+                manager.buildUnbound(in: unboundPath)
+            } label: {
+                Image(systemName: "hammer.fill")
+            }
+            .buttonStyle(.bordered)
+            .disabled(manager.buildPhase.isRunning || !pathValid(unboundPath))
+            .help("Build & Install")
+
+            Divider().frame(height: 14)
+
+            Button {
+                presentAboveFloatingPanels(tokenBox: settingsTokenBox) { openSettings() }
+            } label: {
+                Image(systemName: "gearshape")
+            }
+            .buttonStyle(.bordered)
+            .help("Settings")
         }
+        .controlSize(.small)
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
     }
 
-    // MARK: - Action buttons
-
-    @ViewBuilder
-    private var actionButtons: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 10) {
-                Button {
-                    manager.bootVphone(in: vphoneCliPath)
-                } label: {
-                    Label("Boot vphone", systemImage: "power")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(manager.vphoneDetected || !pathValid(vphoneCliPath))
-
-                Button {
-                    showShutdownConfirm = true
-                } label: {
-                    Label("Shut Down", systemImage: "stop.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .tint(.red)
-                .disabled(!manager.vphoneDetected)
-                .confirmationDialog("Shut down vphone?", isPresented: $showShutdownConfirm) {
-                    Button("Shut Down", role: .destructive) { manager.shutdownVphone() }
-                    Button("Cancel",    role: .cancel) {}
-                } message: {
-                    Text("This will power off the virtual phone.")
-                }
-            }
-
-            HStack(spacing: 10) {
-                Button {
-                    manager.launchDiscord()
-                } label: {
-                    Label("Launch Discord", systemImage: "bubble.left.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    manager.buildUnbound(in: unboundPath)
-                } label: {
-                    Label("Build & Install", systemImage: "hammer.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .disabled(manager.buildPhase.isRunning || !pathValid(unboundPath))
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-    }
-
-    // MARK: - Mid section (folders ↔ progress, animated)
+    // MARK: - Mid section (build progress, thin strip)
 
     @ViewBuilder
     private var midSection: some View {
-        ZStack(alignment: .topLeading) {
-            folderRow
-                .opacity(manager.buildPhase.isActive ? 0 : 1)
-                .allowsHitTesting(!manager.buildPhase.isActive)
-                .animation(.easeInOut(duration: 0.3), value: manager.buildPhase.isActive)
-
-            progressSection
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .opacity(manager.buildPhase.isActive ? 1 : 0)
-                .allowsHitTesting(manager.buildPhase.isActive)
-                .animation(.easeInOut(duration: 0.3), value: manager.buildPhase.isActive)
+        Group {
+            if manager.buildPhase.isActive {
+                progressSection
+                    .transition(.opacity)
+            } else {
+                Color.clear
+            }
         }
+        .animation(.easeInOut(duration: 0.2), value: manager.buildPhase.isActive)
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, minHeight: 80, maxHeight: 80)
-    }
-
-    @ViewBuilder
-    private var folderRow: some View {
-        HStack(spacing: 12) {
-            FolderPicker(label: "vphone-cli", path: $vphoneCliPath)
-            FolderPicker(label: "Unbound Tweak", path: $unboundPath)
-        }
-        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34)
     }
 
     @ViewBuilder
     private var progressSection: some View {
         switch manager.buildPhase {
         case .succeeded:
-            resultRow(icon: "checkmark.circle.fill", tint: .green, message: manager.buildPhase.label)
+            resultRow(icon: "checkmark.circle.fill", tint: .green, message: manager.buildPhase.label, showDismiss: false)
         case .failed:
-            resultRow(icon: "exclamationmark.triangle.fill", tint: .red, message: manager.buildPhase.label)
+            resultRow(icon: "exclamationmark.triangle.fill", tint: .red, message: manager.buildPhase.label, showDismiss: true)
         default:
-            VStack(alignment: .leading, spacing: 5) {
-                if !manager.buildPhase.label.isEmpty {
-                    Text(manager.buildPhase.label)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                if case .building = manager.buildPhase {
+                    ProgressView(value: manager.buildProgress).progressViewStyle(.linear)
+                } else {
+                    ProgressView().progressViewStyle(.linear)
                 }
-                if manager.buildPhase.isRunning {
-                    if case .building = manager.buildPhase {
-                        ProgressView(value: manager.buildProgress).progressViewStyle(.linear)
-                    } else {
-                        ProgressView().progressViewStyle(.linear)
-                    }
-                }
-                if manager.buildPhase.isActive && !manager.buildLog.isEmpty {
+                if !manager.buildLog.isEmpty {
                     Text(manager.buildLog)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary.opacity(0.75))
@@ -241,7 +221,7 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func resultRow(icon: String, tint: Color, message: String) -> some View {
+    private func resultRow(icon: String, tint: Color, message: String, showDismiss: Bool) -> some View {
         HStack(spacing: 8) {
             Image(systemName: icon)
                 .foregroundStyle(tint)
@@ -250,13 +230,15 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
             Spacer()
-            Button {
-                manager.dismissBuildResult()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.tertiary)
+            if showDismiss {
+                Button {
+                    manager.dismissBuildResult()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
     }
 
@@ -427,12 +409,12 @@ struct ContentView: View {
     private func tabLabel(icon: String, label: String, unread: UnreadLevel) -> some View {
         Label(label, systemImage: icon)
             .frame(maxWidth: .infinity)
-            .overlay(alignment: .topTrailing) {
+            .overlay(alignment: .trailing) {
                 if unread != .none {
                     Circle()
                         .fill(unread == .error ? Color.red : Color.blue)
                         .frame(width: 6, height: 6)
-                        .offset(x: 2, y: -2)
+                        .offset(x: -6)
                 }
             }
     }
@@ -533,16 +515,15 @@ struct ContentView: View {
             ScrollViewReader { proxy in
                 ScrollView([.vertical, .horizontal]) {
                     VStack(alignment: .leading, spacing: 0) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(manager.shellLines.enumerated()), id: \.offset) { _, line in
-                                styledShellLine(line)
-                                    .font(.system(size: 11, design: .monospaced))
-                            }
-                        }
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: true, vertical: true)
-                        .frame(minWidth: cardSize.width - 32, alignment: .topLeading)
-                        .padding(.horizontal, 8)
+                        // A single Text spanning every line (rather than one Text per line) so
+                        // drag-selection can span multiple lines — SwiftUI does not merge
+                        // adjacent Text views into one continuous selectable range.
+                        styledShellText()
+                            .font(.system(size: 11, design: .monospaced))
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: true, vertical: true)
+                            .frame(minWidth: cardSize.width - 32, alignment: .topLeading)
+                            .padding(.horizontal, 8)
                         Color.clear.frame(height: 1).id("shellBottom")
                     }
                     .padding(.vertical, 4)
@@ -633,14 +614,17 @@ struct ContentView: View {
         AppController.pathValid(path)
     }
 
-    private func styledShellLine(_ line: ShellLine) -> Text {
-        guard !line.isEmpty else { return Text(" ") }
+    private func styledShellText() -> Text {
         var result = AttributedString()
-        for segment in line.segments where !segment.text.isEmpty {
-            var run = AttributedString(segment.text)
-            run.foregroundColor = segment.color ?? .white
-            if segment.bold { run.inlinePresentationIntent = .stronglyEmphasized }
-            result += run
+        for (index, line) in manager.shellLines.enumerated() {
+            if index > 0 { result += AttributedString("\n") }
+            guard !line.isEmpty else { result += AttributedString(" "); continue }
+            for segment in line.segments where !segment.text.isEmpty {
+                var run = AttributedString(segment.text)
+                run.foregroundColor = segment.color ?? .white
+                if segment.bold { run.inlinePresentationIntent = .stronglyEmphasized }
+                result += run
+            }
         }
         return Text(result)
     }

@@ -1,15 +1,21 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
+    @AppStorage("unboundPath")   private var unboundPath   = NSHomeDirectory() + "/Developer/loader-ios"
     @AppStorage("sshPassword") private var sshPassword = ""
     @AppStorage("autoAttachEnabled") private var autoAttachEnabled = true
-    @AppStorage("autoLaunchDiscordAfterBoot") private var autoLaunchDiscordAfterBoot = false
     @AppStorage("autoCheckForUpdates") private var autoCheckForUpdates = true
     @AppStorage("updateCheckIntervalHours") private var updateCheckIntervalHours = 24
     @AppStorage("logBufferSize") private var logBufferSize = 2000
 
     var body: some View {
         Form {
+            Section("Paths") {
+                FolderPicker(label: "vphone-cli", path: $vphoneCliPath)
+                FolderPicker(label: "Unbound Tweak", path: $unboundPath)
+            }
+
             Section("Connection") {
                 SecureField("Device password", text: $sshPassword, prompt: Text("alpine (default)"))
                 Text("Used for SSH login and sudo on the vphone device.")
@@ -19,7 +25,6 @@ struct SettingsView: View {
 
             Section("Automation") {
                 Toggle("Auto-attach to vphone window", isOn: $autoAttachEnabled)
-                Toggle("Auto-launch Discord after boot", isOn: $autoLaunchDiscordAfterBoot)
             }
 
             Section("Updates") {

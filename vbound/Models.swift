@@ -112,21 +112,32 @@ final class ANSILineBuffer {
     }
 
     // Consumes one escape sequence starting at `start` (pointing at ESC) and returns
-    // the index just past it. Only SGR (`ESC [ params m`) sequences have an effect.
+    // the index just past it. Only plain SGR (`ESC [ Pm m`) sequences have an effect —
+    // private-mode sequences like `ESC [ ? 2004 h` (bracketed paste) are recognized and
+    // dropped rather than falling through to the digit scanner, which previously left
+    // their trailing digits ("2004h") behind as literal text.
     private func consumeEscape(_ raw: String, from start: String.Index) -> String.Index {
         var i = raw.index(after: start)
         guard i < raw.endIndex else { return i }
         guard raw[i] == "[" else { return raw.index(after: i) }  // lone ESC + one char
         i = raw.index(after: i)  // past '['
+
+        // Parameter bytes per ECMA-48: 0-9 : ; < = > ?
         let paramsStart = i
-        while i < raw.endIndex, ("0"..."9").contains(raw[i]) || raw[i] == ";" {
+        while i < raw.endIndex, let v = raw[i].asciiValue, (0x30...0x3F).contains(v) {
+            i = raw.index(after: i)
+        }
+        let paramsEnd = i
+        // Intermediate bytes: space through '/'
+        while i < raw.endIndex, let v = raw[i].asciiValue, (0x20...0x2F).contains(v) {
             i = raw.index(after: i)
         }
         guard i < raw.endIndex else { return i }
         let final  = raw[i]
-        let params = raw[paramsStart..<i]
+        let params = raw[paramsStart..<paramsEnd]
         let next   = raw.index(after: i)
-        if final == "m" { applySGR(params) }
+        let isPrivate = params.first.map { !("0"..."9").contains($0) } ?? false
+        if final == "m", !isPrivate { applySGR(params) }
         return next
     }
 
