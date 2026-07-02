@@ -153,7 +153,7 @@ struct ContentView: View {
             Button {
                 manager.launchDiscord()
             } label: {
-                Label("Discord", systemImage: "bubble.left.fill")
+                Label { Text("Discord") } icon: { Image("Discord") }
             }
             .buttonStyle(.bordered)
             .help("Launch Discord")
@@ -259,9 +259,9 @@ struct ContentView: View {
             Divider()
 
             HStack(spacing: 10) {
-                tabButton(.unbound,     icon: "puzzlepiece.extension",                   label: "Unbound",      unread: unboundUnread)
-                tabButton(.reactNative, icon: "chevron.left.forwardslash.chevron.right", label: "React Native", unread: reactNativeUnread)
-                tabButton(.shell,       icon: "terminal",                                label: "Shell",        unread: .none)
+                tabButton(.unbound,     icon: "Unbound",      label: "Unbound",      unread: unboundUnread)
+                tabButton(.reactNative, icon: "React Native", label: "React Native", unread: reactNativeUnread)
+                tabButton(.shell,       icon: "terminal",     label: "Shell",        unread: .none)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 7)
@@ -407,18 +407,28 @@ struct ContentView: View {
         }
     }
 
+    private static let customSymbolNames: Set<String> = ["Unbound", "React Native", "Discord"]
+
     @ViewBuilder
     private func tabLabel(icon: String, label: String, unread: UnreadLevel) -> some View {
-        Label(label, systemImage: icon)
-            .frame(maxWidth: .infinity)
-            .overlay(alignment: .trailing) {
-                if unread != .none {
-                    Circle()
-                        .fill(unread == .error ? Color.red : Color.blue)
-                        .frame(width: 6, height: 6)
-                        .offset(x: -6)
-                }
+        Label {
+            Text(label)
+        } icon: {
+            if Self.customSymbolNames.contains(icon) {
+                Image(icon)
+            } else {
+                Image(systemName: icon)
             }
+        }
+        .frame(maxWidth: .infinity)
+        .overlay(alignment: .trailing) {
+            if unread != .none {
+                Circle()
+                    .fill(unread == .error ? Color.red : Color.blue)
+                    .frame(width: 6, height: 6)
+                    .offset(x: -6)
+            }
+        }
     }
 
     private var filteredEntries: [LogEntry] {
