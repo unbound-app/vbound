@@ -102,6 +102,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .checkForUpdates)) { _ in
             withAnimation(.easeOut(duration: 0.15)) { showUpdateSheet = true }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .requestShutdownVphone)) { _ in
+            showShutdownConfirm = true
+        }
         .onReceive(appUpdater.$state) { state in
             if case .none = state { return }
             guard state.release?.tagName.description != skippedUpdateVersion else { return }

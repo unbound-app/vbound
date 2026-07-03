@@ -130,7 +130,8 @@ func terminateWithChildren(_ process: Process?) {
 // MARK: - App entry point
 
 extension Notification.Name {
-    static let checkForUpdates = Notification.Name("vbound.checkForUpdates")
+    static let checkForUpdates      = Notification.Name("vbound.checkForUpdates")
+    static let requestShutdownVphone = Notification.Name("vbound.requestShutdownVphone")
 }
 
 @main
@@ -198,6 +199,17 @@ struct vboundApp: App {
                     if manager.isStreaming { manager.stopLogStream() } else { manager.startLogStream() }
                 }
                 .keyboardShortcut("l", modifiers: .command)
+
+                Button("Shut Down vphone…") {
+                    NotificationCenter.default.post(name: .requestShutdownVphone, object: nil)
+                }
+                .keyboardShortcut("b", modifiers: [.command, .shift])
+                .disabled(!manager.vphoneDetected)
+
+                Button("Launch Discord") {
+                    manager.launchDiscord()
+                }
+                .keyboardShortcut("d", modifiers: .command)
             }
         }
 

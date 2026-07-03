@@ -1,5 +1,14 @@
 import AppKit
 
+// Boxes the readabilityHandler's accumulating byte buffer in a reference type so it can
+// be captured as a `let` — a captured `var` mutated inside an escaping, non-actor-isolated
+// closure is exactly what Swift 6 flags as unsafe. Access is manually verified serial
+// (FileHandle never invokes readabilityHandler concurrently for a given handle), matching
+// the same @unchecked Sendable reasoning already applied to AppController itself.
+private final class LineBuffer: @unchecked Sendable {
+    nonisolated(unsafe) var data = Data()
+}
+
 extension AppController {
 
     func startLogStream() {
@@ -25,34 +34,7 @@ extension AppController {
                                               subsystem: nil))
             }
 
-            var lastMach: Double = 0
-
-            while !Task.isCancelled {
-                // Subtract 5 s so we never miss events at the boundary of a 1-second poll window
-                let startTime = Int(Date().timeIntervalSince1970) - 5
-                let events = await self.collectLogEvents(udid: udid, startTime: startTime)
-
-                let fresh = events
-                    .filter  { ($0["machTimestamp"] as? Double ?? 0) > lastMach }
-                    .sorted  { ($0["machTimestamp"] as? Double ?? 0) < ($1["machTimestamp"] as? Double ?? 0) }
-
-                if let newest = fresh.last?["machTimestamp"] as? Double { lastMach = newest }
-
-                if !fresh.isEmpty {
-                    let entries = fresh.compactMap { self.makeLogEntry($0) }
-                    if !entries.isEmpty {
-                        await MainActor.run {  // #10
-                            self.logLines.append(contentsOf: entries)
-                            let limit = self.logBufferSize
-                            if self.logLines.count > limit {
-                                self.logLines.removeFirst(self.logLines.count - limit)  // #3
-                            }
-                        }
-                    }
-                }
-
-                do { try await Task.sleep(for: .seconds(1)) } catch { break }
-            }
+            await self.runLiveSyslog(udid: udid)
 
             await MainActor.run { [weak self] in self?.isStreaming = false }  // #10
         }
@@ -61,68 +43,108 @@ extension AppController {
     func stopLogStream() {
         logStreamTask?.cancel()
         logStreamTask = nil
+        logStreamProcess?.terminate()
+        logStreamProcess = nil
         isStreaming = false
     }
 
     // MARK: - Private helpers
 
-    private func collectLogEvents(udid: String, startTime: Int) async -> [[String: Any]] {
-        let tmpURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("vbound-\(UUID().uuidString).logarchive")
-        defer { try? FileManager.default.removeItem(at: tmpURL) }
+    // `pymobiledevice3 syslog collect` + `log show --archive` (the previous approach here)
+    // silently returns zero events on some pymobiledevice3/iOS combinations — the collected
+    // archive comes back empty even though the device is actively logging, which made the
+    // whole Logs tab look permanently broken. `syslog live --format json` streams events
+    // directly off the device in real time with no intermediate archive, so it doesn't hit
+    // that gap. Filtering by subsystem has to happen here in-process: the CLI's --match/
+    // --regex filters are documented as ignored in JSON mode.
+    private func runLiveSyslog(udid: String) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            p.arguments     = ["pymobiledevice3", "syslog", "live",
+                               "--udid", udid, "--format", "json"]
+            p.environment   = enrichedEnvironment
 
-        _ = await runCapture(args: [
-            "pymobiledevice3", "syslog", "collect",
-            "--udid", udid,
-            "--start-time", "\(startTime)",
-            tmpURL.path
-        ])
+            let pipe = Pipe()
+            p.standardOutput = pipe
 
-        let pred = #"subsystem == "app.unbound" OR subsystem == "com.facebook.react.log""#
-        let raw  = await runCapture(args: [
-            "/usr/bin/log", "show",
-            "--archive", tmpURL.path,
-            "--predicate", pred,
-            "--info", "--debug",
-            "--style", "ndjson"
-        ])
+            // FileHandle invokes readabilityHandler serially for a given handle — never
+            // concurrently — so a boxed buffer with manually-verified single-threaded
+            // access is safe here; a captured local `var` is what Swift 6 actually flags.
+            let buffer = LineBuffer()
+            pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+                guard let self else { return }
+                let data = handle.availableData
+                guard !data.isEmpty else { return }
+                buffer.data.append(data)
 
-        return raw.components(separatedBy: "\n").compactMap { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty,
-                  let data = trimmed.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  json["eventMessage"] is String
-            else { return nil }
-            return json
+                while let newline = buffer.data.firstIndex(of: 0x0A) {
+                    let lineData = buffer.data.subdata(in: buffer.data.startIndex..<newline)
+                    buffer.data.removeSubrange(buffer.data.startIndex...newline)
+                    guard !lineData.isEmpty,
+                          let line = String(data: lineData, encoding: .utf8),
+                          let entry = Self.parseLiveSyslogLine(line)
+                    else { continue }
+
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            self.logLines.append(entry)
+                            let limit = self.logBufferSize
+                            if self.logLines.count > limit {
+                                self.logLines.removeFirst(self.logLines.count - limit)  // #3
+                            }
+                        }
+                    }
+                }
+            }
+
+            p.terminationHandler = { _ in
+                pipe.fileHandleForReading.readabilityHandler = nil
+                continuation.resume()
+            }
+
+            do {
+                try p.run()
+                DispatchQueue.main.async { [weak self] in self?.logStreamProcess = p }
+            } catch {
+                continuation.resume()
+            }
         }
     }
 
-    // Matches the `log show --ndjson` timestamp format "2024-01-15 10:23:45.123456-0800"
-    // and captures the HH:mm:ss.SSS portion. Falls back to the old split-on-space approach
-    // if the format ever changes (#13).
-    private static let tsRegex = /\d{4}-\d{2}-\d{2} (\d{2}:\d{2}:\d{2}\.\d{3})/
+    // Matches the `syslog live --format json` timestamp format "2026-07-02T21:15:45.624234"
+    // and captures the HH:mm:ss.SSS portion.
+    private nonisolated static let liveTsRegex = /T(\d{2}:\d{2}:\d{2}\.\d{3})/
 
-    private func makeLogEntry(_ e: [String: Any]) -> LogEntry? {
-        guard var msg = e["eventMessage"] as? String, !msg.isEmpty else { return nil }
-        let ts        = e["timestamp"]   as? String ?? ""
-        let subsystem = e["subsystem"]   as? String ?? ""
-        let category  = e["category"]    as? String ?? ""
-        let level     = e["messageType"] as? String ?? ""
+    // Pure parse-and-filter with no actor-isolated state — called directly from the
+    // readabilityHandler's background thread, not hopped to the main actor, since the
+    // vast majority of lines get discarded here and shouldn't cost a main-thread round trip.
+    private nonisolated static func parseLiveSyslogLine(_ line: String) -> LogEntry? {
+        guard let data = line.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+
+        let label     = json["label"] as? [String: Any]
+        let subsystem = label?["subsystem"] as? String ?? ""
+        guard subsystem == "app.unbound" || subsystem == "com.facebook.react.log" else { return nil }
+
+        guard var msg = json["message"] as? String, !msg.isEmpty else { return nil }
+        let ts       = json["timestamp"] as? String ?? ""
+        let category = label?["category"] as? String ?? ""
+        let level    = json["level"]      as? String ?? ""
 
         let time: String
-        if let m = ts.firstMatch(of: Self.tsRegex) {  // #13
+        if let m = ts.firstMatch(of: Self.liveTsRegex) {
             time = String(m.1)
         } else {
-            let parts = ts.components(separatedBy: " ")
-            time = parts.count >= 2 ? String(parts[1].prefix(12)) : String(ts.prefix(12))
+            time = String(ts.prefix(12))
         }
 
         let lvl: String
         switch level {
-        case "Error", "Fault": lvl = "ERR"
-        case "Debug":          lvl = "DBG"
-        case "Info":           lvl = "INF"
+        case "ERROR", "FAULT": lvl = "ERR"
+        case "DEBUG":          lvl = "DBG"
+        case "INFO":           lvl = "INF"
         default:               lvl = ""
         }
 

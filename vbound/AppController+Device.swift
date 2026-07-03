@@ -14,7 +14,8 @@ extension AppController {
 
     func shutdownVphone() {
         Task {
-            let (udid, _) = await resolveVphoneUDID()
+            var udid = vphoneUDID
+            if udid == nil { udid = await resolveVphoneUDID().0 }
             guard let udid else { return }
             _ = await run(args: ["pymobiledevice3", "diagnostics", "shutdown", "--udid", udid])
         }
