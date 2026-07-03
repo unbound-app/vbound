@@ -32,6 +32,14 @@ jobs:
                   echo "project=$XCODEPROJ" >> "$GITHUB_OUTPUT"
                   echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
 
+            - name: Cache SPM dependencies
+              uses: actions/cache@v4
+              with:
+                  path: SourcePackages
+                  key: spm-${{ hashFiles('**/Package.resolved') }}
+                  restore-keys: |
+                      spm-
+
             - name: Build (Debug, unsigned)
               run: |
                   xcodebuild build \
@@ -39,6 +47,7 @@ jobs:
                     -scheme "${{ steps.project.outputs.scheme }}" \
                     -configuration Debug \
                     -destination "platform=macOS" \
+                    -clonedSourcePackagesDirPath SourcePackages \
                     CODE_SIGNING_ALLOWED=NO \
                     | xcbeautify
 

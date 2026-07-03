@@ -70,6 +70,7 @@ final class AppController: @unchecked Sendable {
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers = []
         stopLogStream()
+        disconnectShell()
     }
 
     // MARK: - Window observers

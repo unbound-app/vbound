@@ -17,6 +17,11 @@ extension AppController {
             var udid = vphoneUDID
             if udid == nil { udid = await resolveVphoneUDID().0 }
             guard let udid else { return }
+            // Otherwise the log stream and shell session just lose their connection when
+            // the device actually goes offline, and both auto-reconnect straight into a
+            // retry-every-2-seconds loop against a device we just told it to shut down.
+            stopLogStream()
+            disconnectShell()
             _ = await run(args: ["pymobiledevice3", "diagnostics", "shutdown", "--udid", udid])
         }
     }

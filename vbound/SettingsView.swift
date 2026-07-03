@@ -1,16 +1,24 @@
 import SwiftUI
 
 struct SettingsView: View {
+    var body: some View {
+        TabView {
+            GeneralSettingsView()
+                .tabItem { Label("General", systemImage: "gearshape") }
+            AutomationSettingsView()
+                .tabItem { Label("Automation", systemImage: "bolt") }
+            AdvancedSettingsView()
+                .tabItem { Label("Advanced", systemImage: "slider.horizontal.3") }
+        }
+        .frame(width: 420)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct GeneralSettingsView: View {
     @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
     @AppStorage("unboundPath")   private var unboundPath   = NSHomeDirectory() + "/Developer/loader-ios"
     @AppStorage("sshPassword") private var sshPassword = ""
-    @AppStorage("autoAttachEnabled") private var autoAttachEnabled = true
-    @AppStorage("autoStartLogStreamEnabled") private var autoStartLogStreamEnabled = false
-    @AppStorage("autoConnectShellEnabled")   private var autoConnectShellEnabled   = false
-    @AppStorage("autoCheckForUpdates") private var autoCheckForUpdates = true
-    @AppStorage("updateCheckIntervalHours") private var updateCheckIntervalHours = 24
-    @AppStorage("logBufferSize")   private var logBufferSize   = 2000
-    @AppStorage("shellBufferSize") private var shellBufferSize = 2000
 
     var body: some View {
         Form {
@@ -25,13 +33,38 @@ struct SettingsView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+        }
+        .formStyle(.grouped)
+        .padding(.top, 8)
+    }
+}
 
+private struct AutomationSettingsView: View {
+    @AppStorage("autoAttachEnabled") private var autoAttachEnabled = true
+    @AppStorage("autoStartLogStreamEnabled") private var autoStartLogStreamEnabled = false
+    @AppStorage("autoConnectShellEnabled")   private var autoConnectShellEnabled   = false
+
+    var body: some View {
+        Form {
             Section("Automation") {
                 Toggle("Auto-attach to vphone window", isOn: $autoAttachEnabled)
                 Toggle("Auto-start log stream on attach", isOn: $autoStartLogStreamEnabled)
                 Toggle("Auto-connect shell on attach", isOn: $autoConnectShellEnabled)
             }
+        }
+        .formStyle(.grouped)
+        .padding(.top, 8)
+    }
+}
 
+private struct AdvancedSettingsView: View {
+    @AppStorage("autoCheckForUpdates") private var autoCheckForUpdates = true
+    @AppStorage("updateCheckIntervalHours") private var updateCheckIntervalHours = 24
+    @AppStorage("logBufferSize")   private var logBufferSize   = 2000
+    @AppStorage("shellBufferSize") private var shellBufferSize = 2000
+
+    var body: some View {
+        Form {
             Section("Updates") {
                 Toggle("Automatically check for updates", isOn: $autoCheckForUpdates)
                 Picker("Check frequency", selection: $updateCheckIntervalHours) {
@@ -58,8 +91,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420)
-        .fixedSize(horizontal: false, vertical: true)
+        .padding(.top, 8)
     }
 }
 

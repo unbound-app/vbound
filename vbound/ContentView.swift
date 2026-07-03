@@ -14,13 +14,13 @@ struct ContentView: View {
     @State private var showUpdateSheet = false
 
     @State private var logSearch         = ""
-    @State private var showINF           = true
-    @State private var showERR           = true
-    @State private var showDBG           = true
+    @AppStorage("showINF") private var showINF = true
+    @AppStorage("showERR") private var showERR = true
+    @AppStorage("showDBG") private var showDBG = true
     @State private var highlightStartIdx = -1
     @State private var highlightTask: Task<Void, Never>? = nil  // #11
     @State private var activeTab         : LogTab = .unbound
-    @State private var logsMerged        = false
+    @AppStorage("logsMerged") private var logsMerged = false
     @State private var scrollVersion        = 0
     @State private var showShutdownConfirm  = false
     @State private var shellInput           = ""
