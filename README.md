@@ -24,7 +24,7 @@ macOS floating panel that attaches to the vphone window and streamlines Unbound 
 
 ## Usage
 
-vbound automatically detects the vphone window and attaches its panel to the right edge. Configure folder paths on the Home tab before first use.
+vbound automatically detects the vphone window and attaches its panel to the right edge. Configure folder paths, the device password, and automation options from **Settings** (⌘,) before first use.
 
 | Action | Description |
 | --- | --- |
@@ -32,7 +32,8 @@ vbound automatically detects the vphone window and attaches its panel to the rig
 | **Shut Down** | Gracefully shuts down the virtual device via `pymobiledevice3 diagnostics shutdown` |
 | **Launch Discord** | Kills and relaunches Discord on the virtual device |
 | **Build & Install Unbound** | Builds the tweak (`gmake package`) and deploys it via SSH on port 2222 |
-| **Stream** | Live-tails device logs filtered to `app.unbound` and `com.facebook.react` subsystems |
+| **Stream** | Live-tails device logs filtered to `app.unbound` and `com.facebook.react.log` subsystems, with an optional merged view |
+| **Shell** | Opens an SSH terminal session to the device (`mobile@127.0.0.1:2222`) |
 
 Port forwarding (SSH on 2222) is handled automatically by `pymobiledevice3 usbmux forward` whenever an SSH or build action is triggered.
 
