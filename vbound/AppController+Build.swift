@@ -56,8 +56,7 @@ extension AppController {
             guard installed else { return fail("Install failed") }
 
             buildPhase = .restarting
-            _ = await run(ssh: "echo '\(sshPassword)' | sudo -S killall -9 Discord; "
-                            + "uiopen --bundleid com.hammerandchisel.discord")
+            _ = await restartDiscord()
 
             buildPhase = .succeeded; buildLog = ""; buildProgress = 0
             scheduleReset()

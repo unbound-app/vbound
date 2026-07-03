@@ -4,9 +4,16 @@ extension AppController {
 
     func connectShell() {
         guard !isShellConnected else { return }
-        shellAutoReconnect = true  // #6: cleared by disconnectShell() for deliberate disconnects
         shellBuffer.reset()
         shellLines = shellBuffer.lines
+        beginShellConnection()
+    }
+
+    // Split out from connectShell() so auto-reconnect can re-enter here directly —
+    // reconnecting after a transient drop shouldn't wipe the scrollback you were just
+    // looking at; only a fresh, user-initiated Connect click does.
+    private func beginShellConnection() {
+        shellAutoReconnect = true  // #6: cleared by disconnectShell() for deliberate disconnects
 
         Task { [weak self] in
             guard let self else { return }
@@ -74,7 +81,7 @@ extension AppController {
             guard self.shellAutoReconnect, !Task.isCancelled else { return }
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled, self.shellAutoReconnect else { return }
-            await MainActor.run { [weak self] in self?.connectShell() }
+            await MainActor.run { [weak self] in self?.beginShellConnection() }
         }
     }
 

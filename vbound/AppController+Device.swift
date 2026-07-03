@@ -30,8 +30,15 @@ extension AppController {
         Task {
             if !isStreaming { startLogStream() }
             await ensurePortForward()
-            _ = await run(ssh: "echo '\(sshPassword)' | sudo -S killall -9 Discord; "
-                             + "uiopen --bundleid com.hammerandchisel.discord")
+            _ = await restartDiscord()
         }
+    }
+
+    // Shared by launchDiscord() and the build pipeline's post-install restart, so the
+    // bundle ID / restart mechanism only needs to change in one place.
+    @discardableResult
+    func restartDiscord() async -> Bool {
+        await run(ssh: "echo '\(sshPassword)' | sudo -S killall -9 Discord; "
+                     + "uiopen --bundleid com.hammerandchisel.discord")
     }
 }

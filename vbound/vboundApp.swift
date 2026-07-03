@@ -161,8 +161,16 @@ struct vboundApp: App {
                 .task {
                     #if !DEBUG
                     if autoCheckForUpdates { appUpdater.check() }
+                    // Polls in short increments rather than sleeping for the whole interval
+                    // in one shot — a single long Task.sleep would ignore a Settings change
+                    // to a shorter interval until the original (possibly week-long) sleep
+                    // happened to finish on its own.
+                    var elapsedSeconds: Double = 0
                     while !Task.isCancelled {
-                        try? await Task.sleep(for: .seconds(Double(updateCheckIntervalHours) * 3600))
+                        try? await Task.sleep(for: .seconds(60))
+                        elapsedSeconds += 60
+                        guard elapsedSeconds >= Double(updateCheckIntervalHours) * 3600 else { continue }
+                        elapsedSeconds = 0
                         guard !Task.isCancelled, autoCheckForUpdates else { continue }
                         appUpdater.check()
                     }

@@ -13,9 +13,16 @@ extension AppController {
 
     func startLogStream() {
         guard !isStreaming else { return }
+        logLines = []
+        beginLogStreamTask()
+    }
+
+    // Split out from startLogStream() so auto-reconnect can re-enter here directly —
+    // reconnecting after a transient drop (USB blip, vphone restart) shouldn't wipe the
+    // history you were just looking at; only a fresh, user-initiated Stream click does.
+    private func beginLogStreamTask() {
         isStreaming = true
         logStreamAutoReconnect = true  // cleared by stopLogStream() for deliberate stops
-        logLines = []
 
         logStreamTask = Task { [weak self] in
             guard let self else { return }
@@ -45,7 +52,7 @@ extension AppController {
             guard self.logStreamAutoReconnect, !Task.isCancelled else { return }
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled, self.logStreamAutoReconnect else { return }
-            await MainActor.run { [weak self] in self?.startLogStream() }
+            await MainActor.run { [weak self] in self?.beginLogStreamTask() }
         }
     }
 
