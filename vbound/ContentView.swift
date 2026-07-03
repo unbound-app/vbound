@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var highlightStartIdx = -1
     @State private var highlightTask: Task<Void, Never>? = nil  // #11
     @State private var activeTab         : LogTab = .unbound
+    @State private var logsMerged        = false
     @State private var scrollVersion        = 0
     @State private var showShutdownConfirm  = false
     @State private var shellInput           = ""
@@ -88,11 +89,23 @@ struct ContentView: View {
         .onChange(of: showINF)    { _, _ in cancelHighlight() }
         .onChange(of: showERR)    { _, _ in cancelHighlight() }
         .onChange(of: showDBG)    { _, _ in cancelHighlight() }
+        .onChange(of: logsMerged) { _, merged in
+            cancelHighlight()
+            guard merged else { return }
+            if activeTab == .reactNative { activeTab = .unbound }
+            // Merging while already parked on the (now-combined) tab counts as viewing
+            // both subsystems immediately — without this, an unread React Native badge
+            // earned before merging would keep showing through on the merged tab even
+            // though its entries are right there on screen.
+            if activeTab == .unbound { unboundUnread = .none; reactNativeUnread = .none }
+        }
         .onChange(of: activeTab)  { _, new in
             cancelHighlight()
-            if new == .unbound     { unboundUnread     = .none }
+            if new == .unbound {
+                unboundUnread = .none
+                if logsMerged { reactNativeUnread = .none }
+            }
             if new == .reactNative { reactNativeUnread = .none }
-            if new == .all          { unboundUnread = .none; reactNativeUnread = .none }
         }
         .overlay {
             if showUpdateSheet {
@@ -263,11 +276,18 @@ struct ContentView: View {
             Divider()
 
             HStack(spacing: 10) {
-                tabButton(.unbound,     icon: "Unbound",      label: "Unbound",      unread: unboundUnread)
-                tabButton(.reactNative, icon: "React Native", label: "React Native", unread: reactNativeUnread)
-                tabButton(.all,         icon: "square.stack", label: "All",          unread: allUnread)
-                tabButton(.shell,       icon: "terminal",     label: "Shell",        unread: .none)
+                if logsMerged {
+                    tabButton(.unbound, icon: Self.mergedIconKey, label: "Logs", unread: allUnread)
+                        .transition(.opacity)
+                } else {
+                    tabButton(.unbound,     icon: "Unbound",      label: "Unbound",      unread: unboundUnread)
+                        .transition(.opacity)
+                    tabButton(.reactNative, icon: "React Native", label: "React Native", unread: reactNativeUnread)
+                        .transition(.opacity)
+                }
+                tabButton(.shell, icon: "terminal", label: "Shell", unread: .none)
             }
+            .animation(.easeInOut(duration: 0.25), value: logsMerged)
             .padding(.horizontal, 16)
             .padding(.vertical, 7)
 
@@ -323,6 +343,11 @@ struct ContentView: View {
                 .help("Show/hide Error messages")
             LevelFilter(label: "DBG", on: $showDBG, color: .secondary)
                 .help("Show/hide Debug messages")
+
+            Divider().frame(height: 16)
+
+            LevelFilter(label: "MERGE", on: $logsMerged, color: .purple)
+                .help("Merge Unbound and React Native into one combined view")
 
             Divider().frame(height: 16)
 
@@ -413,13 +438,28 @@ struct ContentView: View {
     }
 
     private static let customSymbolNames: Set<String> = ["Unbound", "React Native", "Discord"]
+    private static let mergedIconKey = "Unbound+ReactNative"
+
+    // The merged "Logs" tab stands in for both subsystems, so its icon combines their
+    // actual marks (with a small "+") rather than a generic system glyph that means
+    // nothing on its own.
+    private var mergedLogsIcon: some View {
+        HStack(spacing: 3) {
+            Image("Unbound")
+            Image(systemName: "plus")
+                .font(.system(size: 8, weight: .bold))
+            Image("React Native")
+        }
+    }
 
     @ViewBuilder
     private func tabLabel(icon: String, label: String, unread: UnreadLevel) -> some View {
         Label {
             Text(label)
         } icon: {
-            if Self.customSymbolNames.contains(icon) {
+            if icon == Self.mergedIconKey {
+                mergedLogsIcon
+            } else if Self.customSymbolNames.contains(icon) {
                 Image(icon)
             } else {
                 Image(systemName: icon)
@@ -438,11 +478,7 @@ struct ContentView: View {
 
     private var filteredEntries: [LogEntry] {
         guard activeTab != .shell else { return [] }
-        let target: LogSubsystem? = switch activeTab {
-        case .unbound:     .unbound
-        case .reactNative: .reactNative
-        case .all, .shell: nil
-        }
+        let target: LogSubsystem? = logsMerged ? nil : (activeTab == .unbound ? .unbound : .reactNative)
         return manager.logLines.filter { entry in
             if entry.isHeader { return true }
             if let target, let sub = entry.subsystem, sub != target { return false }
@@ -633,11 +669,13 @@ struct ContentView: View {
     }
 
     private func markUnread(_ newEntries: ArraySlice<LogEntry>) {
-        guard activeTab != .all else { return }  // already viewing both subsystems at once
         for entry in newEntries {
             guard let sub = entry.subsystem else { continue }
             let tab: LogTab = sub == .unbound ? .unbound : .reactNative
-            guard activeTab != tab else { continue }
+            // While merged, the single "Logs" tab (identity `.unbound`) shows both
+            // subsystems at once, so viewing it clears unread for either one.
+            let isViewingThisTab = logsMerged ? (activeTab == .unbound) : (activeTab == tab)
+            guard !isViewingThisTab else { continue }
             let level: UnreadLevel = entry.level == "ERR" ? .error : .info
             if sub == .unbound {
                 if level == .error || unboundUnread == .none { unboundUnread = level }
