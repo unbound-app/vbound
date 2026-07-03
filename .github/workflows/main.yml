@@ -33,7 +33,7 @@ jobs:
                   echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
 
             - name: Cache SPM dependencies
-              uses: actions/cache@v4
+              uses: actions/cache@v6
               with:
                   path: SourcePackages
                   key: spm-${{ hashFiles('**/Package.resolved') }}

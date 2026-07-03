@@ -58,7 +58,7 @@ jobs:
                   p12-password: ${{ steps.cert.outputs.p12-password }}
 
             - name: Cache SPM dependencies
-              uses: actions/cache@v4
+              uses: actions/cache@v6
               with:
                   path: SourcePackages
                   key: spm-${{ hashFiles('**/Package.resolved') }}
