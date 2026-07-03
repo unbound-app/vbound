@@ -4,9 +4,14 @@ on:
     workflow_dispatch:
     workflow_call:
 
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
+
 jobs:
     release:
         runs-on: macos-26
+        timeout-minutes: 45
         permissions:
             contents: write
 
@@ -74,6 +79,10 @@ jobs:
 
             - name: Notarize and staple app
               run: |
+                  # The key file must be removed on any exit path, not just success — a
+                  # failed/timed-out notarytool submission would otherwise leave the
+                  # private key sitting on the runner disk for the rest of the job.
+                  trap 'rm -f /tmp/notary_key.p8' EXIT
                   echo "${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}" | base64 --decode > /tmp/notary_key.p8
 
                   /usr/bin/ditto -c -k --keepParent \
@@ -88,20 +97,22 @@ jobs:
 
                   xcrun stapler staple "build/export/${{ steps.project.outputs.app-name }}.app"
 
-                  rm /tmp/notary_key.p8
-
             - name: Package app
               run: |
+                  ZIP="build/${{ steps.project.outputs.app-name }}-${{ steps.project.outputs.version }}.zip"
                   /usr/bin/ditto -c -k --keepParent \
                     "build/export/${{ steps.project.outputs.app-name }}.app" \
-                    "build/${{ steps.project.outputs.app-name }}-${{ steps.project.outputs.version }}.zip"
+                    "$ZIP"
+                  shasum -a 256 "$ZIP" | awk '{print $1}' > "$ZIP.sha256"
 
             - name: Create GitHub Release
               uses: softprops/action-gh-release@v3
               with:
                   tag_name: ${{ steps.project.outputs.version }}
                   generate_release_notes: true
-                  files: build/${{ steps.project.outputs.app-name }}-${{ steps.project.outputs.version }}.zip
+                  files: |
+                      build/${{ steps.project.outputs.app-name }}-${{ steps.project.outputs.version }}.zip
+                      build/${{ steps.project.outputs.app-name }}-${{ steps.project.outputs.version }}.zip.sha256
                   fail_on_unmatched_files: true
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

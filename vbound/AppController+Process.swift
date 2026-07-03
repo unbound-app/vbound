@@ -16,8 +16,25 @@ extension AppController {
         UserDefaults.standard.object(forKey: "autoAttachEnabled") as? Bool ?? true
     }
 
+    // Off by default — auto-starting a persistent stream/session without an explicit
+    // click is a bigger behavioral surprise than auto-attach, so this is opt-in.
+    var autoStartLogStreamEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "autoStartLogStreamEnabled")
+    }
+
+    var autoConnectShellEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "autoConnectShellEnabled")
+    }
+
     var logBufferSize: Int {
         let v = UserDefaults.standard.integer(forKey: "logBufferSize")
+        return v > 0 ? v : 2000
+    }
+
+    // Separate from logBufferSize: they cap two unrelated things (streamed Unbound/React
+    // Native entries vs. shell scrollback) and shouldn't share one setting silently.
+    var shellBufferSize: Int {
+        let v = UserDefaults.standard.integer(forKey: "shellBufferSize")
         return v > 0 ? v : 2000
     }
 

@@ -14,6 +14,7 @@ extension AppController {
     func startLogStream() {
         guard !isStreaming else { return }
         isStreaming = true
+        logStreamAutoReconnect = true  // cleared by stopLogStream() for deliberate stops
         logLines = []
 
         logStreamTask = Task { [weak self] in
@@ -37,10 +38,19 @@ extension AppController {
             await self.runLiveSyslog(udid: udid)
 
             await MainActor.run { [weak self] in self?.isStreaming = false }  // #10
+
+            // The device dropping mid-stream (USB blip, vphone restart) otherwise leaves
+            // the tab silently dead with no indication anything went wrong — auto-reconnect
+            // mirrors the same pattern already used for the shell connection.
+            guard self.logStreamAutoReconnect, !Task.isCancelled else { return }
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, self.logStreamAutoReconnect else { return }
+            await MainActor.run { [weak self] in self?.startLogStream() }
         }
     }
 
     func stopLogStream() {
+        logStreamAutoReconnect = false  // prevent reconnect on deliberate stop
         logStreamTask?.cancel()
         logStreamTask = nil
         logStreamProcess?.terminate()

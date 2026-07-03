@@ -92,6 +92,7 @@ struct ContentView: View {
             cancelHighlight()
             if new == .unbound     { unboundUnread     = .none }
             if new == .reactNative { reactNativeUnread = .none }
+            if new == .all          { unboundUnread = .none; reactNativeUnread = .none }
         }
         .overlay {
             if showUpdateSheet {
@@ -264,6 +265,7 @@ struct ContentView: View {
             HStack(spacing: 10) {
                 tabButton(.unbound,     icon: "Unbound",      label: "Unbound",      unread: unboundUnread)
                 tabButton(.reactNative, icon: "React Native", label: "React Native", unread: reactNativeUnread)
+                tabButton(.all,         icon: "square.stack", label: "All",          unread: allUnread)
                 tabButton(.shell,       icon: "terminal",     label: "Shell",        unread: .none)
             }
             .padding(.horizontal, 16)
@@ -436,10 +438,14 @@ struct ContentView: View {
 
     private var filteredEntries: [LogEntry] {
         guard activeTab != .shell else { return [] }
-        let target: LogSubsystem = activeTab == .unbound ? .unbound : .reactNative
+        let target: LogSubsystem? = switch activeTab {
+        case .unbound:     .unbound
+        case .reactNative: .reactNative
+        case .all, .shell: nil
+        }
         return manager.logLines.filter { entry in
             if entry.isHeader { return true }
-            if let sub = entry.subsystem, sub != target { return false }
+            if let target, let sub = entry.subsystem, sub != target { return false }
             let levelPass: Bool
             switch entry.level {
             case "INF": levelPass = showINF
@@ -450,6 +456,12 @@ struct ContentView: View {
             guard levelPass else { return false }
             return logSearch.isEmpty || entry.asString().localizedCaseInsensitiveContains(logSearch)
         }
+    }
+
+    private var allUnread: UnreadLevel {
+        if unboundUnread == .error || reactNativeUnread == .error { return .error }
+        if unboundUnread == .info  || reactNativeUnread == .info  { return .info }
+        return .none
     }
 
     // MARK: - Shell toolbar + view
@@ -621,6 +633,7 @@ struct ContentView: View {
     }
 
     private func markUnread(_ newEntries: ArraySlice<LogEntry>) {
+        guard activeTab != .all else { return }  // already viewing both subsystems at once
         for entry in newEntries {
             guard let sub = entry.subsystem else { continue }
             let tab: LogTab = sub == .unbound ? .unbound : .reactNative

@@ -36,6 +36,7 @@ final class AppController: @unchecked Sendable {
     var forwardProcess:   Process?
     var logStreamTask:    Task<Void, Never>?
     var logStreamProcess: Process?
+    var logStreamAutoReconnect = false
     var shellProcess:     Process?
     var shellInputHandle: FileHandle?
     var shellAutoReconnect = false
@@ -133,7 +134,7 @@ final class AppController: @unchecked Sendable {
             if !isAttached { ourWindow?.orderFront(nil) }
             positionBeside(vphoneFrame)
         } else {
-            isAttached = true
+            markAttached()
         }
         updateWindowTitle()
     }
@@ -217,6 +218,15 @@ final class AppController: @unchecked Sendable {
         let appkitY = screenHeight - vphoneFrame.minY - window.frame.height
         let target  = NSPoint(x: vphoneFrame.maxX, y: appkitY)
         if window.frame.origin != target { window.setFrameOrigin(target) }
-        if !isAttached { isAttached = true }
+        markAttached()
+    }
+
+    // One-shot per attach transition (guarded by `isAttached`) so Settings' auto-start
+    // toggles fire exactly once when vphone becomes reachable, not on every 100ms poll tick.
+    private func markAttached() {
+        guard !isAttached else { return }
+        isAttached = true
+        if autoStartLogStreamEnabled, !isStreaming      { startLogStream() }
+        if autoConnectShellEnabled,   !isShellConnected { connectShell() }
     }
 }

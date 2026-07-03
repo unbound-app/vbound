@@ -3,9 +3,47 @@ name: Check Version Bump
 on:
     push:
         branches: [main]
+    pull_request:
+        branches: [main]
+
+concurrency:
+    group: ci-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
 jobs:
+    build:
+        runs-on: macos-26
+        timeout-minutes: 20
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v7
+
+            - name: Xcode Select Version
+              uses: maxim-lobanov/setup-xcode@v1
+              with:
+                  xcode-version: latest
+
+            - name: Resolve project info
+              id: project
+              run: |
+                  XCODEPROJ=$(find . -maxdepth 1 -name "*.xcodeproj" -type d | head -1)
+                  XCODEPROJ="${XCODEPROJ#./}"
+                  SCHEME=$(basename "$(find "$XCODEPROJ/xcshareddata/xcschemes" -name "*.xcscheme" | head -1)" .xcscheme)
+                  echo "project=$XCODEPROJ" >> "$GITHUB_OUTPUT"
+                  echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+
+            - name: Build (Debug, unsigned)
+              run: |
+                  xcodebuild build \
+                    -project "${{ steps.project.outputs.project }}" \
+                    -scheme "${{ steps.project.outputs.scheme }}" \
+                    -configuration Debug \
+                    -destination "platform=macOS" \
+                    CODE_SIGNING_ALLOWED=NO \
+                    | xcbeautify
+
     check:
+        if: github.event_name == 'push'
         runs-on: ubuntu-latest
         outputs:
             bumped: ${{ steps.check.outputs.bumped }}
@@ -32,7 +70,7 @@ jobs:
 
     release:
         needs: check
-        if: needs.check.outputs.bumped == 'true'
+        if: github.event_name == 'push' && needs.check.outputs.bumped == 'true'
         uses: ./.github/workflows/release.yml
         secrets: inherit
         permissions:

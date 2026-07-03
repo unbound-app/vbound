@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 enum LogTab: Equatable {
-    case unbound, reactNative, shell
+    case unbound, reactNative, all, shell
 }
 
 enum UnreadLevel: Equatable {

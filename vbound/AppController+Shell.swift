@@ -44,7 +44,7 @@ extension AppController {
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     MainActor.assumeIsolated {
-                        self.shellBuffer.feed(raw, maxLines: self.logBufferSize)
+                        self.shellBuffer.feed(raw, maxLines: self.shellBufferSize)
                         self.shellLines = self.shellBuffer.lines  // single mutation
                     }
                 }
