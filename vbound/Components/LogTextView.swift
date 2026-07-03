@@ -53,7 +53,7 @@ private extension NSBezierPath {
     }
 }
 
-// MARK: - NSObject detection (mirrors LogEntryRow logic)
+// MARK: - NSObject/ObjC description detection
 
 private struct NSObjectData {
     let prefix:  String
@@ -125,21 +125,6 @@ private func formatObjCBody(_ body: String) -> String {
     return parts[0] + "\n" + parts.dropFirst().map { "    " + $0 }.joined(separator: "\n")
 }
 
-private func detectJSON(_ message: String) -> String? {
-    let msg = message.trimmingCharacters(in: .whitespaces)
-    func pretty(_ raw: String) -> String? {
-        guard let d = raw.data(using: .utf8),
-              let o = try? JSONSerialization.jsonObject(with: d),
-              let p = try? JSONSerialization.data(withJSONObject: o,
-                                                  options: [.prettyPrinted, .sortedKeys]),
-              let s = String(data: p, encoding: .utf8) else { return nil }
-        return s
-    }
-    if msg.hasPrefix("{") || msg.hasPrefix("["), let s = pretty(msg) { return s }
-    if let i = msg.firstIndex(of: "{"), let s = pretty(String(msg[i...])) { return s }
-    return nil
-}
-
 // MARK: - Link tag constants
 // Used as the .link attribute value so the delegate can distinguish click targets.
 private let kLinkTagTimestamp = "ts"
@@ -150,7 +135,7 @@ private let kLinkTagBadge     = "badge"
 final class LogNSTextView: NSTextView {
     var entryRanges:    [(range: NSRange, entry: LogEntry)]               = []
     var timestampRanges:[(range: NSRange, fullTime: String)]              = []
-    var popoverRanges:  [(range: NSRange, content: String, isCode: Bool)] = []
+    var popoverRanges:  [(range: NSRange, content: String)] = []
 
     var onCopyLine:        ((LogEntry) -> Void)?
     var onFilterToSource:  ((LogEntry) -> Void)?
@@ -236,7 +221,7 @@ struct LogTextView: NSViewRepresentable {
     var searchQuery:       String = ""
     var onFilterToSource:  ((LogEntry) -> Void)? = nil
 
-    // Tab stops match LogEntryRow SwiftUI fixed-frame layout (textContainerInset.width = 8):
+    // Tab stops match this row's fixed-frame column layout (textContainerInset.width = 8):
     //   timestamp 58pt frame + 6pt gap  → tab 1 at  64pt (abs  72pt) ✓
     //   level pill ~26pt      + 6pt gap → tab 2 at  96pt (abs 104pt) ✓
     //   source 106pt frame    + 6pt gap → tab 3 at 208pt (abs 216pt) ✓
@@ -334,7 +319,7 @@ struct LogTextView: NSViewRepresentable {
         let str:            NSAttributedString
         var entryRanges:    [(range: NSRange, entry: LogEntry)]
         var timestampRanges:[(range: NSRange, fullTime: String)]
-        var popoverRanges:  [(range: NSRange, content: String, isCode: Bool)]
+        var popoverRanges:  [(range: NSRange, content: String)]
     }
 
     private func buildContent() -> BuildResult {
@@ -345,7 +330,7 @@ struct LogTextView: NSViewRepresentable {
         let out = NSMutableAttributedString()
         var entryRanges:    [(range: NSRange, entry: LogEntry)]               = []
         var timestampRanges:[(range: NSRange, fullTime: String)]              = []
-        var popoverRanges:  [(range: NSRange, content: String, isCode: Bool)] = []
+        var popoverRanges:  [(range: NSRange, content: String)] = []
 
         func ns(_ str: String, font: NSFont, color: NSColor,
                 bg: NSColor? = nil) -> NSAttributedString {
@@ -388,33 +373,22 @@ struct LogTextView: NSViewRepresentable {
                 out.append(ns(padded, font: monoS, color: .tertiaryLabelColor))
                 out.append(ns("\t", font: monoR, color: .clear))
 
-                // Structured-data detection — NSObject first, then JSON (mirrors LogEntryRow)
+                // Structured-data detection — NSObject/ObjC description dumps
                 let nsObj          = detectNSObject(entry.message)
                 let hasBadge:       Bool
                 let displayMsg:     String
                 let popoverContent: String
-                let popoverIsCode:  Bool
 
                 if let obj = nsObj, !obj.isEmpty {
                     hasBadge       = true
                     displayMsg     = obj.prefix
                     popoverContent = obj.body
-                    popoverIsCode  = true
-                } else if let json = detectJSON(entry.message) {
-                    hasBadge       = true
-                    let msg        = entry.message
-                        .replacingOccurrences(of: "\n", with: " ")
-                        .trimmingCharacters(in: .whitespaces)
-                    displayMsg     = msg.count > 80 ? String(msg.prefix(80)) + "…" : msg
-                    popoverContent = json
-                    popoverIsCode  = false
                 } else {
                     hasBadge       = false
                     displayMsg     = entry.message
                         .replacingOccurrences(of: "\n", with: " ")
                         .trimmingCharacters(in: .whitespaces)
                     popoverContent = ""
-                    popoverIsCode  = false
                 }
 
                 if hasBadge {
@@ -424,8 +398,7 @@ struct LogTextView: NSViewRepresentable {
                     let badgeRange = NSRange(location: badgeStart, length: out.length - badgeStart)
                     // Tag with .link so the pointing-hand cursor and delegate fire on click.
                     out.addAttribute(.link, value: kLinkTagBadge, range: badgeRange)
-                    popoverRanges.append((range: badgeRange, content: popoverContent,
-                                          isCode: popoverIsCode))
+                    popoverRanges.append((range: badgeRange, content: popoverContent))
                 }
 
                 let msgStart = out.length
@@ -484,8 +457,7 @@ struct LogTextView: NSViewRepresentable {
                 guard let hit = tv.popoverRanges
                     .first(where: { NSLocationInRange(charIndex, $0.range) })
                 else { return false }
-                if hit.isCode { showCodePopover(code: hit.content, in: tv, anchor: anchor) }
-                else          { showJSONPopover(json: hit.content, in: tv, anchor: anchor) }
+                showCodePopover(code: hit.content, in: tv, anchor: anchor)
                 return true
 
             default:
@@ -507,25 +479,6 @@ struct LogTextView: NSViewRepresentable {
         }
 
         // MARK: Popover presenters
-
-        func showJSONPopover(json: String, in view: NSView, anchor: NSRect) {
-            popover?.close()
-            let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 480, height: 300))
-            tv.isEditable = false; tv.isSelectable = true
-            tv.backgroundColor    = .textBackgroundColor
-            tv.textContainerInset = NSSize(width: 12, height: 10)
-            tv.textStorage?.setAttributedString(JSONHighlighter.highlightNS(json))
-            let sv = NSScrollView(frame: NSRect(x: 0, y: 0, width: 500, height: 320))
-            sv.documentView        = tv
-            sv.hasVerticalScroller = true; sv.hasHorizontalScroller = true
-            let vc = NSViewController(); vc.view = sv
-            let p  = NSPopover()
-            p.contentViewController = vc
-            p.contentSize = NSSize(width: 500, height: 320)
-            p.behavior    = .transient
-            p.show(relativeTo: anchor, of: view, preferredEdge: .maxY)
-            popover = p
-        }
 
         func showCodePopover(code: String, in view: NSView, anchor: NSRect) {
             popover?.close()
