@@ -113,13 +113,22 @@ extension AppController {
         return max(logosCount * 3 + (objcCount + swiftCount) * 2 + 8, 20)
     }
 
+    // contentsOfDirectory gives no ordering guarantee (not by name, not by date), so
+    // picking .first could silently grab a stale .deb left over from a previous version
+    // if packages/ isn't cleaned between builds — pick whichever one was written last.
     private func findDeb(in directory: String) -> String? {
         let packagesDir = (directory as NSString).appendingPathComponent("packages")
         guard let files = try? FileManager.default.contentsOfDirectory(atPath: packagesDir)
         else { return nil }
+
+        func modificationDate(_ path: String) -> Date {
+            ((try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date)
+                ?? .distantPast
+        }
+
         return files
             .filter { $0.hasSuffix(".deb") }
             .map    { (packagesDir as NSString).appendingPathComponent($0) }
-            .first
+            .max    { modificationDate($0) < modificationDate($1) }
     }
 }

@@ -20,7 +20,7 @@ extension AppController {
     // Split out from startLogStream() so auto-reconnect can re-enter here directly —
     // reconnecting after a transient drop (USB blip, vphone restart) shouldn't wipe the
     // history you were just looking at; only a fresh, user-initiated Stream click does.
-    private func beginLogStreamTask() {
+    private func beginLogStreamTask(isReconnect: Bool = false) {
         isStreaming = true
         logStreamAutoReconnect = true  // cleared by stopLogStream() for deliberate stops
 
@@ -37,9 +37,14 @@ extension AppController {
             }
 
             await MainActor.run {  // #10
+                // Since history now survives reconnects, a flapping connection would
+                // otherwise show the same ">> streaming from" banner repeating for no
+                // apparent reason — tag it explicitly so a flaky session is obvious.
+                let message = isReconnect
+                    ? ">> reconnected to vphone \(udid)"
+                    : ">> streaming from vphone \(udid)"
                 self.logLines.append(LogEntry(time: "", level: "", source: "",
-                                              message: ">> streaming from vphone \(udid)",
-                                              subsystem: nil))
+                                              message: message, subsystem: nil))
             }
 
             await self.runLiveSyslog(udid: udid)
@@ -52,7 +57,7 @@ extension AppController {
             guard self.logStreamAutoReconnect, !Task.isCancelled else { return }
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled, self.logStreamAutoReconnect else { return }
-            await MainActor.run { [weak self] in self?.beginLogStreamTask() }
+            await MainActor.run { [weak self] in self?.beginLogStreamTask(isReconnect: true) }
         }
     }
 

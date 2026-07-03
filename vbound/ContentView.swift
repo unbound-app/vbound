@@ -164,7 +164,14 @@ struct ContentView: View {
                 Button("Shut Down", role: .destructive) { manager.shutdownVphone() }
                 Button("Cancel",    role: .cancel) {}
             } message: {
-                Text("This will power off the virtual phone.")
+                // Mirrors the same warning TerminatingWindowDelegate already shows when
+                // quitting mid-build — shutting down vphone is just as destructive to an
+                // in-flight upload/install as quitting the app is.
+                if manager.buildPhase.isRunning {
+                    Text("A build is currently in progress. Shutting down now will interrupt it.")
+                } else {
+                    Text("This will power off the virtual phone.")
+                }
             }
 
             Button {
