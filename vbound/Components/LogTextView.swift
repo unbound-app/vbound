@@ -192,6 +192,9 @@ final class LogNSTextView: NSTextView {
             owner: self, userInfo: nil))
     }
 
+    // Timestamps and the {} object badge are clickable, but they still read as plain
+    // text — show the ordinary arrow cursor over them instead of a pointing hand;
+    // everywhere else keeps the iBeam since the body text is selectable.
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
         guard let lm = layoutManager, let tc = textContainer else { return }
@@ -204,7 +207,7 @@ final class LogNSTextView: NSTextView {
             let ci = lm.characterIndexForGlyph(at: gi)
             if timestampRanges.contains(where: { NSLocationInRange(ci, $0.range) }) ||
                popoverRanges.contains(where:   { NSLocationInRange(ci, $0.range) }) {
-                NSCursor.pointingHand.set()
+                NSCursor.arrow.set()
                 return
             }
         }
