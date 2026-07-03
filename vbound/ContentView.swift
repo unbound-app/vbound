@@ -401,10 +401,20 @@ struct ContentView: View {
         .padding(.vertical, 9)
     }
 
+    // Distinguishes "nothing has arrived yet" from "entries exist but every level filter
+    // is off" — the latter now persists across relaunches, so a leftover all-off state
+    // would otherwise silently masquerade as a dead/broken stream (see #17).
+    private var emptyLogStateMessage: String {
+        if !showINF && !showERR && !showDBG {
+            return "INF/ERR/DBG are all hidden — enable one to see logs"
+        }
+        return manager.isStreaming ? "Waiting for logs…" : "Tap Stream to start"
+    }
+
     @ViewBuilder
     private var logScrollView: some View {
         if filteredEntries.isEmpty {
-            Text(manager.isStreaming ? "Waiting for logs…" : "Tap Stream to start")
+            Text(emptyLogStateMessage)
                 .font(.system(size: 13))
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

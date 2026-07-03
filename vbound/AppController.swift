@@ -214,8 +214,13 @@ final class AppController: @unchecked Sendable {
     }
 
     private func positionBeside(_ vphoneFrame: CGRect) {
+        // vphoneFrame comes from CGWindowList, whose Y-coordinates are always relative to
+        // the primary display's top edge — NOT to NSScreen.main, which is whichever screen
+        // currently holds the key window. Using .main here flips against the wrong height
+        // whenever vbound itself is focused on a different display than vphone, snapping
+        // the panel to the wrong vertical position on multi-monitor setups.
         guard let window = ourWindow,
-              let screenHeight = NSScreen.main?.frame.height else { return }
+              let screenHeight = NSScreen.screens.first?.frame.height else { return }
         let appkitY = screenHeight - vphoneFrame.minY - window.frame.height
         let target  = NSPoint(x: vphoneFrame.maxX, y: appkitY)
         if window.frame.origin != target { window.setFrameOrigin(target) }
