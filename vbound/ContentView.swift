@@ -146,6 +146,14 @@ struct ContentView: View {
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .contextMenu {
+                    if let udid = manager.vphoneUDID {
+                        Button("Copy UDID") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(udid, forType: .string)
+                        }
+                    }
+                }
 
             Spacer(minLength: 8)
 

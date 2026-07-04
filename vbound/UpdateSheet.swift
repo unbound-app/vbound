@@ -1,6 +1,7 @@
 import SwiftUI
 import AppUpdater
 import Version
+import Textual
 
 // Rendered as an in-window overlay rather than a system `.sheet`. A real NSWindow
 // sheet attached to our floating, non-resizable panel repaints incorrectly while its
@@ -205,9 +206,12 @@ struct UpdateOverlay: View {
     private var changelogView: some View {
         if let changelog, !changelog.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             ScrollView {
-                Text(changelog)
+                // Release notes come from `generate_release_notes: true`, which is GitHub-
+                // flavored Markdown (bullet lists of PR titles, bold, links) — rendering it
+                // as plain Text left the literal "- "/"**" markup visible instead of formatted.
+                StructuredText(markdown: changelog)
+                    .textual.structuredTextStyle(.gitHub)
                     .font(.callout)
-                    .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(height: 100)

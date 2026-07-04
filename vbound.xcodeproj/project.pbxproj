@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		3A1FA99D2FF946EF002B5525 /* Textual in Frameworks */ = {isa = PBXBuildFile; productRef = 3A1FA99C2FF946EF002B5525 /* Textual */; };
 		3AC3492A2FF46B92006A1959 /* AppUpdater in Frameworks */ = {isa = PBXBuildFile; productRef = 3AC349292FF46B92006A1959 /* AppUpdater */; };
 /* End PBXBuildFile section */
 
@@ -27,6 +28,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3A1FA99D2FF946EF002B5525 /* Textual in Frameworks */,
 				3AC3492A2FF46B92006A1959 /* AppUpdater in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -71,6 +73,7 @@
 			name = vbound;
 			packageProductDependencies = (
 				3AC349292FF46B92006A1959 /* AppUpdater */,
+				3A1FA99C2FF946EF002B5525 /* Textual */,
 			);
 			productName = vbound;
 			productReference = 3A70EE592FEDF322003EE09D /* vbound.app */;
@@ -102,6 +105,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				3AC349282FF46B92006A1959 /* XCRemoteSwiftPackageReference "AppUpdater" */,
+				3A1FA99B2FF946EF002B5525 /* XCRemoteSwiftPackageReference "textual" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3A70EE5A2FEDF322003EE09D /* Products */;
@@ -352,6 +356,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		3A1FA99B2FF946EF002B5525 /* XCRemoteSwiftPackageReference "textual" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/textual";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.5.0;
+			};
+		};
 		3AC349282FF46B92006A1959 /* XCRemoteSwiftPackageReference "AppUpdater" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/s1ntoneli/AppUpdater.git";
@@ -363,6 +375,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		3A1FA99C2FF946EF002B5525 /* Textual */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3A1FA99B2FF946EF002B5525 /* XCRemoteSwiftPackageReference "textual" */;
+			productName = Textual;
+		};
 		3AC349292FF46B92006A1959 /* AppUpdater */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 3AC349282FF46B92006A1959 /* XCRemoteSwiftPackageReference "AppUpdater" */;
