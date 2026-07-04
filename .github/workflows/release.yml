@@ -30,10 +30,12 @@ jobs:
                   VERSION=$(grep -m1 'MARKETING_VERSION' "$XCODEPROJ/project.pbxproj" | tr -d ' ;' | cut -d= -f2)
                   BUNDLE_ID=$(grep -m1 'PRODUCT_BUNDLE_IDENTIFIER' "$XCODEPROJ/project.pbxproj" | tr -d ' ;' | cut -d= -f2)
                   SCHEME=$(basename "$(find "$XCODEPROJ/xcshareddata/xcschemes" -name "*.xcscheme" | head -1)" .xcscheme)
+                  BUILD_NUMBER=$(git rev-list --count HEAD)
                   echo "app-name=$APP_NAME" >> "$GITHUB_OUTPUT"
                   echo "version=$VERSION" >> "$GITHUB_OUTPUT"
                   echo "bundle-id=$BUNDLE_ID" >> "$GITHUB_OUTPUT"
                   echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+                  echo "build-number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
 
             - name: Xcode Select Version
               uses: maxim-lobanov/setup-xcode@v1
@@ -76,6 +78,7 @@ jobs:
                     CODE_SIGN_STYLE=Manual \
                     CODE_SIGN_IDENTITY="${{ steps.cert.outputs.codesign-identity }}" \
                     PROVISIONING_PROFILE_SPECIFIER="" \
+                    CURRENT_PROJECT_VERSION="${{ steps.project.outputs.build-number }}" \
                     | xcbeautify
 
             - name: Export app

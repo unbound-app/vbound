@@ -47,29 +47,7 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: manager.buildPhase.isActive)
-        .background(
-            WindowAccessor { window in
-                window.styleMask.remove(.resizable)
-                window.contentMinSize = cardSize
-                window.contentMaxSize = cardSize
-                window.setContentSize(cardSize)
-                window.level = .floating
-                window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-                manager.ourWindow = window
-                // Replace window delegate with a proxy that quits on close.
-                // windowShouldClose intercepts SwiftUI's hide-instead-of-close behaviour;
-                // the close button target-action is a belt-and-suspenders backup.
-                let quitDelegate = TerminatingWindowDelegate()
-                quitDelegate.originalDelegate = window.delegate
-                quitDelegate.controller = manager
-                manager.terminatingDelegate = quitDelegate
-                window.delegate = quitDelegate
-                window.standardWindowButton(.closeButton)?.target = quitDelegate
-                window.standardWindowButton(.closeButton)?.action =
-                    #selector(TerminatingWindowDelegate.closeWindow(_:))
-                manager.start()
-            }
-        )
+        .background(WindowAccessor(callback: configureWindow))
         .onChange(of: manager.logLines.count) { old, new in
             let delta = new - old
             guard delta > 0 else { return }
@@ -131,6 +109,39 @@ struct ContentView: View {
             guard state.release?.tagName.description != skippedUpdateVersion else { return }
             if !showUpdateSheet { withAnimation(.easeOut(duration: 0.15)) { showUpdateSheet = true } }
         }
+    }
+
+    // Pulled out of the WindowAccessor closure literal — inlining this much statement
+    // volume directly into the `body` modifier chain pushed SwiftUI's type-checker over
+    // its "reasonable time" budget for the whole (already large) expression tree.
+    private func configureWindow(_ window: NSWindow) {
+        window.styleMask.remove(.resizable)
+        // There's no "zoomable" style mask to remove — the button itself has to be
+        // disabled directly, otherwise it stays clickable-looking even though
+        // contentMinSize == contentMaxSize means zooming can't change anything.
+        window.standardWindowButton(.zoomButton)?.isEnabled = false
+        window.contentMinSize = cardSize
+        window.contentMaxSize = cardSize
+        window.setContentSize(cardSize)
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // Only matters when auto-attach is off (positionBeside overrides the origin every
+        // poll tick otherwise) — restores wherever the window was last manually dragged to
+        // instead of resetting to the default placement on every relaunch.
+        window.setFrameAutosaveName("vboundMainWindow")
+        manager.ourWindow = window
+        // Replace window delegate with a proxy that quits on close.
+        // windowShouldClose intercepts SwiftUI's hide-instead-of-close behaviour;
+        // the close button target-action is a belt-and-suspenders backup.
+        let quitDelegate = TerminatingWindowDelegate()
+        quitDelegate.originalDelegate = window.delegate
+        quitDelegate.controller = manager
+        manager.terminatingDelegate = quitDelegate
+        window.delegate = quitDelegate
+        window.standardWindowButton(.closeButton)?.target = quitDelegate
+        window.standardWindowButton(.closeButton)?.action =
+            #selector(TerminatingWindowDelegate.closeWindow(_:))
+        manager.start()
     }
 
     // MARK: - Status strip (status + all primary actions, one line)
