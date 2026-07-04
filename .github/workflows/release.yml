@@ -114,11 +114,27 @@ jobs:
                     "$ZIP"
                   shasum -a 256 "$ZIP" | awk '{print $1}' > "$ZIP.sha256"
 
+            - name: Extract release notes from CHANGELOG.md
+              run: |
+                  VERSION="${{ steps.project.outputs.version }}"
+                  awk -v ver="$VERSION" '
+                      /^## \[/ {
+                          if (found) exit
+                          if ($0 ~ ("^## \\[" ver "\\]")) { found=1; next }
+                          next
+                      }
+                      found { print }
+                  ' CHANGELOG.md > release_notes.md
+
+                  if [ ! -s release_notes.md ]; then
+                      echo "No CHANGELOG.md section found for $VERSION." > release_notes.md
+                  fi
+
             - name: Create GitHub Release
               uses: softprops/action-gh-release@v3
               with:
                   tag_name: ${{ steps.project.outputs.version }}
-                  generate_release_notes: true
+                  body_path: release_notes.md
                   files: |
                       build/${{ steps.project.outputs.app-name }}-${{ steps.project.outputs.version }}.zip
                       build/${{ steps.project.outputs.app-name }}-${{ steps.project.outputs.version }}.zip.sha256
