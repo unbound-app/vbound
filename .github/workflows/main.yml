@@ -6,14 +6,18 @@ on:
     pull_request:
         branches: [main]
 
-concurrency:
-    group: ci-${{ github.workflow }}-${{ github.ref }}
-    cancel-in-progress: true
-
 jobs:
     build:
         runs-on: macos-26
         timeout-minutes: 20
+        # Job-level (not workflow-level) so this only ever cancels redundant build/check
+        # runs — a workflow-level group would also cover the `release` job below, which
+        # calls release.yml via `uses:`, and a fast-following push could then cancel an
+        # in-flight archive/notarize mid-run. release.yml has its own concurrency group
+        # for protecting against parallel release runs; it doesn't need help from here.
+        concurrency:
+            group: ci-build-${{ github.ref }}
+            cancel-in-progress: true
         steps:
             - name: Checkout code
               uses: actions/checkout@v7
@@ -54,6 +58,9 @@ jobs:
     check:
         if: github.event_name == 'push'
         runs-on: ubuntu-latest
+        concurrency:
+            group: ci-check-${{ github.ref }}
+            cancel-in-progress: true
         outputs:
             bumped: ${{ steps.check.outputs.bumped }}
         steps:
@@ -69,7 +76,11 @@ jobs:
                   XCODEPROJ="${XCODEPROJ#./}"
                   PBXPROJ="$XCODEPROJ/project.pbxproj"
                   CURRENT=$(grep -m1 'MARKETING_VERSION' "$PBXPROJ" | tr -d ' ;' | cut -d= -f2)
-                  LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")
+                  # --match restricts this to semver-shaped tags — an unrelated tag (a
+                  # milestone marker, a backup point, anything not X.Y.Z) would otherwise
+                  # get picked up by plain `--tags --abbrev=0` and compared against
+                  # MARKETING_VERSION with unpredictable sort -V results.
+                  LATEST_TAG=$(git describe --tags --abbrev=0 --match '[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || echo "0.0.0")
                   echo "Current: $CURRENT, Latest tag: $LATEST_TAG"
                   if [ "$CURRENT" != "$LATEST_TAG" ] && [ "$(printf '%s\n' "$LATEST_TAG" "$CURRENT" | sort -V | tail -n1)" = "$CURRENT" ]; then
                     echo "bumped=true" >> "$GITHUB_OUTPUT"
@@ -78,7 +89,7 @@ jobs:
                   fi
 
     release:
-        needs: check
+        needs: [check, build]
         if: github.event_name == 'push' && needs.check.outputs.bumped == 'true'
         uses: ./.github/workflows/release.yml
         secrets: inherit
