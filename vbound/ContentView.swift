@@ -187,6 +187,7 @@ struct ContentView: View {
                 Label { Text("Discord") } icon: { Image("Discord") }
             }
             .buttonStyle(.bordered)
+            .disabled(!manager.vphoneDetected)
             .help("Launch Discord")
 
             Button {

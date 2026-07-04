@@ -219,6 +219,7 @@ struct vboundApp: App {
                     manager.launchDiscord()
                 }
                 .keyboardShortcut("d", modifiers: .command)
+                .disabled(!manager.vphoneDetected)
 
                 Button("Find in Logs") {
                     NotificationCenter.default.post(name: .focusLogFilter, object: nil)
