@@ -31,6 +31,7 @@ struct ContentView: View {
     @State private var shellHistoryIndex : Int? = nil
     @Environment(\.openSettings) private var openSettings
     @FocusState private var shellInputFocused: Bool
+    @FocusState private var logSearchFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -118,6 +119,12 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .requestShutdownVphone)) { _ in
             showShutdownConfirm = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .focusLogFilter)) { _ in
+            // The filter field doesn't apply to Shell content — hop to a log tab first
+            // so ⌘F always lands somewhere the search actually does something.
+            if activeTab == .shell { activeTab = .unbound }
+            logSearchFocused = true
         }
         .onReceive(appUpdater.$state) { state in
             if case .none = state { return }
@@ -326,6 +333,7 @@ struct ContentView: View {
                 TextField("Filter…", text: $logSearch)
                     .font(.system(size: 12))
                     .textFieldStyle(.plain)
+                    .focused($logSearchFocused)
                 if !logSearch.isEmpty {
                     Button { logSearch = "" } label: {
                         Image(systemName: "xmark.circle.fill")

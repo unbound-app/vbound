@@ -132,6 +132,7 @@ func terminateWithChildren(_ process: Process?) {
 extension Notification.Name {
     static let checkForUpdates      = Notification.Name("vbound.checkForUpdates")
     static let requestShutdownVphone = Notification.Name("vbound.requestShutdownVphone")
+    static let focusLogFilter        = Notification.Name("vbound.focusLogFilter")
 }
 
 @main
@@ -218,6 +219,11 @@ struct vboundApp: App {
                     manager.launchDiscord()
                 }
                 .keyboardShortcut("d", modifiers: .command)
+
+                Button("Find in Logs") {
+                    NotificationCenter.default.post(name: .focusLogFilter, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: .command)
             }
         }
 
