@@ -88,9 +88,6 @@ jobs:
 
             - name: Notarize and staple app
               run: |
-                  # The key file must be removed on any exit path, not just success — a
-                  # failed/timed-out notarytool submission would otherwise leave the
-                  # private key sitting on the runner disk for the rest of the job.
                   trap 'rm -f /tmp/notary_key.p8' EXIT
                   echo "${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}" | base64 --decode > /tmp/notary_key.p8
 
