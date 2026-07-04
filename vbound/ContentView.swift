@@ -17,8 +17,9 @@ struct ContentView: View {
     @AppStorage("showINF") private var showINF = true
     @AppStorage("showERR") private var showERR = true
     @AppStorage("showDBG") private var showDBG = true
-    @State private var highlightStartIdx = -1
-    @State private var highlightTask: Task<Void, Never>? = nil  // #11
+    // Resets to true each launch/attach — auto-follow is the expected default, not a
+    // sticky "stay off forever" preference (#18).
+    @State private var logAutoScroll     = true
     @State private var activeTab         : LogTab = .unbound
     @AppStorage("logsMerged") private var logsMerged = false
     @State private var scrollVersion        = 0
@@ -52,24 +53,9 @@ struct ContentView: View {
             let delta = new - old
             guard delta > 0 else { return }
             scrollVersion += 1
-            highlightStartIdx = max(0, filteredEntries.count - delta)
-            // Cancel any in-flight fade so a burst of new entries resets the timer (#11)
-            highlightTask?.cancel()
-            highlightTask = Task {
-                try? await Task.sleep(for: .milliseconds(1400))
-                guard !Task.isCancelled else { return }
-                withAnimation(.easeOut(duration: 0.9)) { highlightStartIdx = -1 }
-            }
             markUnread(manager.logLines[old..<new])
         }
-        // Cancel highlight when the filter changes — the index is relative to filteredEntries
-        // and would point to the wrong rows after the filter updates (#11)
-        .onChange(of: logSearch)  { _, _ in cancelHighlight() }
-        .onChange(of: showINF)    { _, _ in cancelHighlight() }
-        .onChange(of: showERR)    { _, _ in cancelHighlight() }
-        .onChange(of: showDBG)    { _, _ in cancelHighlight() }
         .onChange(of: logsMerged) { _, merged in
-            cancelHighlight()
             guard merged else { return }
             if activeTab == .reactNative { activeTab = .unbound }
             // Merging while already parked on the (now-combined) tab counts as viewing
@@ -79,7 +65,7 @@ struct ContentView: View {
             if activeTab == .unbound { unboundUnread = .none; reactNativeUnread = .none }
         }
         .onChange(of: activeTab)  { _, new in
-            cancelHighlight()
+            logAutoScroll = true  // #18 — switching tabs means you want to watch that tab live
             if new == .unbound {
                 unboundUnread = .none
                 if logsMerged { reactNativeUnread = .none }
@@ -201,6 +187,7 @@ struct ContentView: View {
             }
 
             Button {
+                logAutoScroll = true  // #18 — launching Discord means you want to watch it boot
                 manager.launchDiscord()
             } label: {
                 Label { Text("Discord") } icon: { Image("Discord") }
@@ -210,6 +197,7 @@ struct ContentView: View {
             .help("Launch Discord")
 
             Button {
+                logAutoScroll = true  // #18 — same for a fresh build/install run
                 manager.buildUnbound(in: unboundPath)
             } label: {
                 Label("Build", systemImage: "hammer.fill")
@@ -397,20 +385,22 @@ struct ContentView: View {
                 }
                 .help("Copy visible logs to clipboard")
 
+                // #18 — persistent auto-follow toggle: disengages the moment the user
+                // scrolls or clicks into the log view (see LogTextView's onUserInteraction),
+                // so reading older entries doesn't keep getting yanked back to the bottom.
+                // Re-engaging jumps straight to the newest entry, same as the old
+                // dedicated "scroll to newest" button this replaced.
                 Button {
+                    logAutoScroll.toggle()
+                    guard logAutoScroll else { return }
                     scrollVersion += 1
-                    guard !filteredEntries.isEmpty else { return }
-                    highlightStartIdx = max(0, filteredEntries.count - 5)
-                    highlightTask?.cancel()  // #11
-                    highlightTask = Task {
-                        try? await Task.sleep(for: .milliseconds(1400))
-                        guard !Task.isCancelled else { return }
-                        withAnimation(.easeOut(duration: 0.9)) { highlightStartIdx = -1 }
-                    }
                 } label: {
-                    Image(systemName: "arrow.clockwise")
+                    Image(systemName: logAutoScroll ? "pin.fill" : "pin.slash")
                 }
-                .help("Scroll to newest log entry")
+                .foregroundStyle(logAutoScroll ? Color.accentColor : Color.secondary)
+                .help(logAutoScroll
+                      ? "Auto-scroll to newest is on — click to pause"
+                      : "Auto-scroll to newest is off — click to resume")
             }
             .buttonStyle(.borderless)
             .font(.system(size: 14))
@@ -423,8 +413,12 @@ struct ContentView: View {
                     .frame(width: 8, height: 8)
                     .animation(.easeInOut(duration: 0.25), value: manager.isStreaming)
                 Button(manager.isStreaming ? "Stop" : "Stream") {
-                    if manager.isStreaming { manager.stopLogStream() }
-                    else                  { manager.startLogStream() }
+                    if manager.isStreaming {
+                        manager.stopLogStream()
+                    } else {
+                        logAutoScroll = true  // #18 — (re)starting the stream means watch live
+                        manager.startLogStream()
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
@@ -456,10 +450,12 @@ struct ContentView: View {
         } else {
             LogTextView(
                 entries: filteredEntries,
-                highlightStartIdx: highlightStartIdx,
                 scrollVersion: scrollVersion,
+                autoScroll: logAutoScroll,
                 searchQuery: logSearch,
-                onFilterToSource: { entry in logSearch = entry.source }
+                onFilterToSource: { entry in logSearch = entry.source },
+                onUserInteraction: { logAutoScroll = false },
+                onReachedBottom: { logAutoScroll = true }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -728,12 +724,6 @@ struct ContentView: View {
                 if level == .error || reactNativeUnread == .none { reactNativeUnread = level }
             }
         }
-    }
-
-    private func cancelHighlight() {  // #11
-        highlightTask?.cancel()
-        highlightTask = nil
-        highlightStartIdx = -1
     }
 
     private func pathValid(_ path: String) -> Bool {  // #12

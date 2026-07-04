@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SwiftUI
 
 // MARK: - Attachment image helpers
@@ -139,6 +140,15 @@ final class LogNSTextView: NSTextView {
 
     var onCopyLine:        ((LogEntry) -> Void)?
     var onFilterToSource:  ((LogEntry) -> Void)?
+    var onUserInteraction: (() -> Void)?
+    var onReachedBottom:   (() -> Void)?
+
+    // Any direct click disengages auto-scroll, even one that doesn't move the
+    // scroll position (e.g. clicking to place the cursor while already at the bottom).
+    override func mouseDown(with event: NSEvent) {
+        onUserInteraction?()
+        super.mouseDown(with: event)
+    }
 
     // MARK: Row context menu (copy line / filter to source)
 
@@ -219,10 +229,12 @@ final class LogNSTextView: NSTextView {
 
 struct LogTextView: NSViewRepresentable {
     let entries:           [LogEntry]
-    let highlightStartIdx: Int
     let scrollVersion:     Int
+    var autoScroll:        Bool = true
     var searchQuery:       String = ""
     var onFilterToSource:  ((LogEntry) -> Void)? = nil
+    var onUserInteraction: (() -> Void)? = nil
+    var onReachedBottom:   (() -> Void)? = nil
 
     // Tab stops match this row's fixed-frame column layout (textContainerInset.width = 8):
     //   timestamp 58pt frame + 6pt gap  → tab 1 at  64pt (abs  72pt) ✓
@@ -239,6 +251,39 @@ struct LogTextView: NSViewRepresentable {
         s.paragraphSpacing       = 3
         return s
     }()
+
+    struct DisplayRow {
+        let entry:     LogEntry
+        let count:     Int
+        let lastIndex: Int
+    }
+
+    // The raw syslog line can carry incidental trailing whitespace/newlines that vary
+    // between otherwise-identical occurrences (invisible once rendered, since the
+    // message is trimmed for display) — normalize before comparing so that noise
+    // doesn't defeat duplicate detection (#19).
+    private static func normalizedMessage(_ message: String) -> String {
+        message.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // Groups immediately-consecutive rows that share source/level/message so a device
+    // logging the same line in a tight loop renders as one row with a "×N" counter
+    // instead of N separately-flashing rows.
+    static func collapseConsecutive(_ entries: [LogEntry]) -> [DisplayRow] {
+        var rows: [DisplayRow] = []
+        for (i, entry) in entries.enumerated() {
+            if !entry.isHeader,
+               let last = rows.last, !last.entry.isHeader,
+               normalizedMessage(last.entry.message) == normalizedMessage(entry.message),
+               last.entry.source == entry.source,
+               last.entry.level == entry.level {
+                rows[rows.count - 1] = DisplayRow(entry: entry, count: last.count + 1, lastIndex: i)
+            } else {
+                rows.append(DisplayRow(entry: entry, count: 1, lastIndex: i))
+            }
+        }
+        return rows
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -275,6 +320,33 @@ struct LogTextView: NSViewRepresentable {
         tv.delegate = context.coordinator
         sv.documentView = tv
         context.coordinator.textView = tv
+
+        // Distinguishes a user-initiated scroll (scroll wheel, dragging the scrollbar)
+        // from bounds changes we caused ourselves — either directly (our own
+        // scrollToEndOfDocument(_:) calls) or indirectly (AppKit's own initial layout
+        // pass fires this same notification once when the clip view is first sized,
+        // and TextKit can settle the scroll position on a later runloop tick after a
+        // fresh scrollToEndOfDocument, once glyph layout catches up). A single
+        // synchronous before/after flag only caught the direct case and was still
+        // seeing these as "user interaction," silently disengaging auto-scroll before
+        // the user ever touched anything (#18).
+        sv.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification, object: sv.contentView, queue: .main
+        ) { [weak sv, weak coordinator = context.coordinator] _ in
+            guard let c = coordinator else { return }
+            guard c.hasSeenInitialLayout else { c.hasSeenInitialLayout = true; return }
+            guard Date() >= c.ignoreInteractionUntil else { return }
+            // Scrolling back down to the bottom yourself is treated the same as clicking
+            // the pin — it means you want to resume following the live tail again.
+            if let sv, let docView = sv.documentView,
+               sv.contentView.bounds.maxY >= docView.frame.height - 2 {
+                c.textView?.onReachedBottom?()
+            } else {
+                c.textView?.onUserInteraction?()
+            }
+        }
+
         return sv
     }
 
@@ -287,7 +359,9 @@ struct LogTextView: NSViewRepresentable {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(entry.asString(), forType: .string)
         }
-        tv.onFilterToSource = onFilterToSource
+        tv.onFilterToSource  = onFilterToSource
+        tv.onUserInteraction = onUserInteraction
+        tv.onReachedBottom   = onReachedBottom
 
         let result = buildContent()
         storage.setAttributedString(result.str)
@@ -295,10 +369,34 @@ struct LogTextView: NSViewRepresentable {
         tv.timestampRanges = result.timestampRanges
         tv.popoverRanges   = result.popoverRanges
 
-        let shouldScroll = entries.count > c.lastCount || scrollVersion != c.lastVersion
+        let shouldScroll = autoScroll && (entries.count > c.lastCount || scrollVersion != c.lastVersion)
         c.lastCount   = entries.count
         c.lastVersion = scrollVersion
-        if shouldScroll { DispatchQueue.main.async { tv.scrollToEndOfDocument(nil) } }
+        if shouldScroll {
+            DispatchQueue.main.async {
+                // A generous grace window, not just a before/after flag around this one
+                // call — TextKit can still be settling layout for content set moments
+                // ago, and a follow-up bounds notification can land after this closure
+                // already returns.
+                c.ignoreInteractionUntil = Date().addingTimeInterval(0.3)
+
+                // Let scrollToEndOfDocument figure out the correct target position (it
+                // knows about TextKit layout we'd otherwise have to recompute by hand),
+                // then replay that same move as an animation instead of an instant jump —
+                // a smooth glide reads as "a line arrived" instead of the view snapping.
+                let clipView     = sv.contentView
+                let priorOrigin  = clipView.bounds.origin
+                tv.scrollToEndOfDocument(nil)
+                let targetOrigin = clipView.bounds.origin
+                guard targetOrigin != priorOrigin else { return }
+                clipView.setBoundsOrigin(priorOrigin)
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration       = 0.18
+                    ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    clipView.animator().setBoundsOrigin(targetOrigin)
+                }
+            }
+        }
     }
 
     // Case-insensitive NSRange occurrences of `query` within `haystack`, in NSString terms.
@@ -335,6 +433,11 @@ struct LogTextView: NSViewRepresentable {
         var timestampRanges:[(range: NSRange, fullTime: String)]              = []
         var popoverRanges:  [(range: NSRange, content: String)] = []
 
+        // Collapse immediately-consecutive identical lines (same source/level/message)
+        // into one row with a "×N" counter, à la Console.app, instead of flooding the
+        // view with N separate rows for a device logging the same status in a loop.
+        let rows = Self.collapseConsecutive(entries)
+
         func ns(_ str: String, font: NSFont, color: NSColor,
                 bg: NSColor? = nil) -> NSAttributedString {
             var a: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
@@ -342,9 +445,9 @@ struct LogTextView: NSViewRepresentable {
             return NSAttributedString(string: str, attributes: a)
         }
 
-        for (i, entry) in entries.enumerated() {
+        for row in rows {
+            let entry    = row.entry
             let rowStart = out.length
-            let isNew    = highlightStartIdx >= 0 && i >= highlightStartIdx
 
             if entry.isHeader {
                 out.append(ns(entry.message + "\n", font: monoS, color: .secondaryLabelColor))
@@ -405,7 +508,7 @@ struct LogTextView: NSViewRepresentable {
                 }
 
                 let msgStart = out.length
-                out.append(ns(displayMsg + "\n", font: body, color: .labelColor))
+                out.append(ns(displayMsg, font: body, color: .labelColor))
                 if !searchQuery.isEmpty {
                     for range in ranges(of: searchQuery, in: displayMsg) {
                         out.addAttribute(.backgroundColor,
@@ -413,15 +516,18 @@ struct LogTextView: NSViewRepresentable {
                                          range: NSRange(location: msgStart + range.location, length: range.length))
                     }
                 }
+                if row.count > 1 {
+                    out.append(ns(" ", font: body, color: .clear))
+                    out.append(makeAttachment(image: pillImage(
+                        label: "×\(row.count)",
+                        fg: .secondaryLabelColor,
+                        bg: NSColor.secondaryLabelColor.withAlphaComponent(0.12))))
+                }
+                out.append(ns("\n", font: body, color: .labelColor))
             }
 
             let rowRange = NSRange(location: rowStart, length: out.length - rowStart)
             out.addAttribute(.paragraphStyle, value: Self.paraStyle, range: rowRange)
-            if isNew && !entry.isHeader {
-                out.addAttribute(.backgroundColor,
-                                 value: NSColor.controlAccentColor.withAlphaComponent(0.13),
-                                 range: rowRange)
-            }
             entryRanges.append((range: rowRange, entry: entry))
         }
 
@@ -436,6 +542,8 @@ struct LogTextView: NSViewRepresentable {
         weak var textView: LogNSTextView?
         var lastCount   = 0
         var lastVersion = 0
+        var hasSeenInitialLayout = false
+        var ignoreInteractionUntil = Date.distantPast
         private var popover: NSPopover?
 
         // MARK: NSTextViewDelegate — link clicks

@@ -10,11 +10,6 @@ jobs:
     build:
         runs-on: macos-26
         timeout-minutes: 20
-        # Job-level (not workflow-level) so this only ever cancels redundant build/check
-        # runs — a workflow-level group would also cover the `release` job below, which
-        # calls release.yml via `uses:`, and a fast-following push could then cancel an
-        # in-flight archive/notarize mid-run. release.yml has its own concurrency group
-        # for protecting against parallel release runs; it doesn't need help from here.
         concurrency:
             group: ci-build-${{ github.ref }}
             cancel-in-progress: true

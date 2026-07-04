@@ -9,6 +9,33 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-04
+
+### Added
+
+- A persistent auto-scroll toggle (pin icon) in the log toolbar, replacing
+  the old one-shot "scroll to newest" button. It disengages the moment you
+  scroll or click into the log view, and re-engages when you scroll back to
+  the bottom, switch tabs, or start a stream/build/Discord launch.
+- Consecutive identical log lines are now collapsed into a single row with a
+  "×N" counter instead of flooding the view with repeats.
+
+### Changed
+
+- New log lines now scroll into view with a smooth animated glide instead of
+  snapping down instantly.
+
+### Fixed
+
+- Closing the window (or quitting via ⌘Q/the Dock) could leave orphaned
+  child processes — spawned by `sshpass`/`pymobiledevice3`, which don't
+  receive the parent's SIGTERM — running in the background. Child-process
+  cleanup ran after those process references had already been cleared,
+  making it a no-op; it now captures them first.
+- A spurious AppKit layout notification (fired on initial view layout, or
+  when TextKit settles scroll position a moment after an auto-scroll) could
+  silently disengage auto-scroll before any real user interaction happened.
+
 ## [0.8.0] - 2026-07-04
 
 ### Added

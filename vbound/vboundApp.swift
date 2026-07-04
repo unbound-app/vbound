@@ -66,9 +66,16 @@ final class TerminatingWindowDelegate: NSObject, NSWindowDelegate {
     }
 
     private func quit(_ ctrl: AppController? = nil) {
+        // Capture before stop() — it nils out shellProcess/logStreamProcess itself
+        // (via disconnectShell()/stopLogStream()), so grabbing them after would just
+        // hand terminateWithChildren a nil reference and silently reap nothing.
+        let shellProc   = ctrl?.shellProcess
+        let logProc     = ctrl?.logStreamProcess
+        let forwardProc = ctrl?.forwardProcess
         ctrl?.stop()
-        terminateWithChildren(ctrl?.shellProcess)
-        terminateWithChildren(ctrl?.forwardProcess)
+        terminateWithChildren(shellProc)
+        terminateWithChildren(logProc)
+        terminateWithChildren(forwardProc)
         // Ask the SSH multiplexer master to exit too (ControlPersist=60 would otherwise
         // leave it running for a minute after the last client disconnects). Fire-and-forget:
         // waiting here would block the whole app quit if the control socket doesn't
@@ -101,9 +108,17 @@ final class TerminatingWindowDelegate: NSObject, NSWindowDelegate {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         guard let ctrl = AppController.current else { return }
+        // Same capture-before-stop ordering as TerminatingWindowDelegate.quit() — this
+        // is the path a Dock "Quit" or ⌘Q takes (bypassing that delegate entirely), so
+        // it needs the same fix independently rather than relying on the other path
+        // having already run first.
+        let shellProc   = ctrl.shellProcess
+        let logProc     = ctrl.logStreamProcess
+        let forwardProc = ctrl.forwardProcess
         ctrl.stop()
-        terminateWithChildren(ctrl.shellProcess)
-        terminateWithChildren(ctrl.forwardProcess)
+        terminateWithChildren(shellProc)
+        terminateWithChildren(logProc)
+        terminateWithChildren(forwardProc)
         let mux = Process()
         mux.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         mux.arguments     = ["ssh", "-O", "exit",
