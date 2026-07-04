@@ -182,13 +182,13 @@ extension AppController {
         func hdr(_ m: String) -> LogEntry { LogEntry(time: "", level: "",    source: "",       message: m, subsystem: nil) }
         func err(_ m: String) -> LogEntry { LogEntry(time: "", level: "ERR", source: "vbound", message: m, subsystem: nil) }
 
-        let listRaw = await runCapture(args: ["pymobiledevice3", "usbmux", "list"])
+        let listRaw = await runCapture(args: ["pymobiledevice3", "usbmux", "list"], timeout: 10)
 
         guard !listRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let data    = listRaw.data(using: .utf8),
               let devices = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
         else {
-            let which = await runCapture(args: ["which", "pymobiledevice3"])
+            let which = await runCapture(args: ["which", "pymobiledevice3"], timeout: 5)
             if which.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return (nil, [err("pymobiledevice3 not found — pipx install pymobiledevice3")])
             }

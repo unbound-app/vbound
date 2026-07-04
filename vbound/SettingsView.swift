@@ -1,17 +1,53 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @State private var showResetConfirm = false
+
+    // Every @AppStorage key surfaced anywhere in Settings (paths/connection/automation/
+    // updates/buffers) — deliberately excludes main-window view state like log level
+    // filters or merge mode, which a user wouldn't associate with a Settings reset.
+    private static let resettableKeys = [
+        "vphoneCliPath", "unboundPath", "sshPassword",
+        "autoAttachEnabled", "autoStartLogStreamEnabled", "autoConnectShellEnabled",
+        "autoCheckForUpdates", "updateCheckIntervalHours",
+        "logBufferSize", "shellBufferSize",
+    ]
+
     var body: some View {
-        TabView {
-            GeneralSettingsView()
-                .tabItem { Label("General", systemImage: "gearshape") }
-            AutomationSettingsView()
-                .tabItem { Label("Automation", systemImage: "bolt") }
-            AdvancedSettingsView()
-                .tabItem { Label("Advanced", systemImage: "slider.horizontal.3") }
+        VStack(spacing: 0) {
+            TabView {
+                GeneralSettingsView()
+                    .tabItem { Label("General", systemImage: "gearshape") }
+                AutomationSettingsView()
+                    .tabItem { Label("Automation", systemImage: "bolt") }
+                AdvancedSettingsView()
+                    .tabItem { Label("Advanced", systemImage: "slider.horizontal.3") }
+            }
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("Reset to Defaults…") { showResetConfirm = true }
+                    .buttonStyle(.link)
+                    .font(.footnote)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
         .frame(width: 420)
         .fixedSize(horizontal: false, vertical: true)
+        .confirmationDialog(
+            "Reset all settings to their defaults?",
+            isPresented: $showResetConfirm
+        ) {
+            Button("Reset", role: .destructive) {
+                for key in Self.resettableKeys { UserDefaults.standard.removeObject(forKey: key) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This resets paths, the device password, automation, update, and buffer settings back to their defaults.")
+        }
     }
 }
 

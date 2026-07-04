@@ -22,7 +22,7 @@ extension AppController {
             // retry-every-2-seconds loop against a device we just told it to shut down.
             stopLogStream()
             disconnectShell()
-            _ = await run(args: ["pymobiledevice3", "diagnostics", "shutdown", "--udid", udid])
+            _ = await run(args: ["pymobiledevice3", "diagnostics", "shutdown", "--udid", udid], timeout: 10)
         }
     }
 

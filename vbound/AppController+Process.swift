@@ -49,6 +49,7 @@ extension AppController {
     func run(
         args: [String],
         workingDirectory: URL? = nil,
+        timeout: TimeInterval? = nil,
         onOutput: ((String) -> Void)? = nil
     ) async -> Bool {
         await withCheckedContinuation { continuation in
@@ -74,7 +75,18 @@ extension AppController {
             p.terminationHandler = { proc in
                 continuation.resume(returning: proc.terminationStatus == 0)
             }
-            do { try p.run() } catch { continuation.resume(returning: false) }
+            do {
+                try p.run()
+                // Unlike the SSH calls (which get -o ConnectTimeout=5), plain pymobiledevice3
+                // invocations have no built-in timeout — if the device is in a bad USB state,
+                // this would otherwise hang the awaiting Task forever with no way to cancel.
+                if let timeout {
+                    Task {
+                        try? await Task.sleep(for: .seconds(timeout))
+                        if p.isRunning { p.terminate() }
+                    }
+                }
+            } catch { continuation.resume(returning: false) }
         }
     }
 
@@ -94,7 +106,7 @@ extension AppController {
         ])
     }
 
-    func runCapture(args: [String]) async -> String {
+    func runCapture(args: [String], timeout: TimeInterval? = nil) async -> String {
         await withCheckedContinuation { continuation in
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -120,7 +132,16 @@ extension AppController {
                     continuation.resume(returning: String(data: buf, encoding: .utf8) ?? "")
                 }
             }
-            do { try p.run() } catch { continuation.resume(returning: "") }
+            do {
+                try p.run()
+                // See run(args:timeout:) — pymobiledevice3 has no built-in timeout of its own.
+                if let timeout {
+                    Task {
+                        try? await Task.sleep(for: .seconds(timeout))
+                        if p.isRunning { p.terminate() }
+                    }
+                }
+            } catch { continuation.resume(returning: "") }
         }
     }
 
