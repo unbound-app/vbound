@@ -13,6 +13,9 @@ jobs:
         concurrency:
             group: ci-build-${{ github.ref }}
             cancel-in-progress: true
+        permissions:
+            contents: read
+            actions: write
         steps:
             - name: Checkout code
               uses: actions/checkout@v7
@@ -31,13 +34,14 @@ jobs:
                   echo "project=$XCODEPROJ" >> "$GITHUB_OUTPUT"
                   echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
 
-            - name: Cache SPM dependencies
-              uses: actions/cache@v6
+            - name: Cache Xcode build (DerivedData + SourcePackages)
+              uses: irgaly/xcode-cache@v1
               with:
-                  path: SourcePackages
-                  key: spm-${{ hashFiles('**/Package.resolved') }}
+                  key: xcode-cache-deriveddata-${{ github.workflow }}-${{ github.sha }}
                   restore-keys: |
-                      spm-
+                      xcode-cache-deriveddata-${{ github.workflow }}-
+                  sourcepackages-directory: SourcePackages
+                  delete-used-deriveddata-cache: true
 
             - name: Build (Debug, unsigned)
               run: |
