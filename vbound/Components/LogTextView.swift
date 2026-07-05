@@ -232,6 +232,7 @@ struct LogTextView: NSViewRepresentable {
     let scrollVersion:     Int
     var autoScroll:        Bool = true
     var searchQuery:       String = ""
+    var focusedEntryID:    LogEntry.ID? = nil
     var onFilterToSource:  ((LogEntry) -> Void)? = nil
     var onUserInteraction: (() -> Void)? = nil
     var onReachedBottom:   (() -> Void)? = nil
@@ -368,6 +369,17 @@ struct LogTextView: NSViewRepresentable {
         tv.entryRanges     = result.entryRanges
         tv.timestampRanges = result.timestampRanges
         tv.popoverRanges   = result.popoverRanges
+
+        // Jump to a specific search match (⌘G / next-match button). Gated on the target
+        // actually changing so this doesn't re-scroll on every unrelated re-render (e.g.
+        // a new log line streaming in) while the same match is still focused.
+        if let focusedEntryID, focusedEntryID != c.lastFocusedEntryID,
+           let hit = result.entryRanges.first(where: { $0.entry.id == focusedEntryID }) {
+            c.lastFocusedEntryID = focusedEntryID
+            tv.scrollRangeToVisible(hit.range)
+        } else if focusedEntryID == nil {
+            c.lastFocusedEntryID = nil
+        }
 
         let shouldScroll = autoScroll && (entries.count > c.lastCount || scrollVersion != c.lastVersion)
         c.lastCount   = entries.count
@@ -510,9 +522,16 @@ struct LogTextView: NSViewRepresentable {
                 let msgStart = out.length
                 out.append(ns(displayMsg, font: body, color: .labelColor))
                 if !searchQuery.isEmpty {
+                    // The row currently targeted by find-next/previous gets a stronger
+                    // color than the rest of the matches so it's obvious which one you
+                    // just jumped to among possibly many highlighted occurrences.
+                    let isFocusedRow    = entry.id == focusedEntryID
+                    let highlightColor  = isFocusedRow
+                        ? NSColor.systemOrange.withAlphaComponent(0.55)
+                        : NSColor.systemYellow.withAlphaComponent(0.4)
                     for range in ranges(of: searchQuery, in: displayMsg) {
                         out.addAttribute(.backgroundColor,
-                                         value: NSColor.systemYellow.withAlphaComponent(0.4),
+                                         value: highlightColor,
                                          range: NSRange(location: msgStart + range.location, length: range.length))
                     }
                 }
@@ -542,6 +561,7 @@ struct LogTextView: NSViewRepresentable {
         weak var textView: LogNSTextView?
         var lastCount   = 0
         var lastVersion = 0
+        var lastFocusedEntryID: LogEntry.ID?
         var hasSeenInitialLayout = false
         var ignoreInteractionUntil = Date.distantPast
         private var popover: NSPopover?

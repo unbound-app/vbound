@@ -213,16 +213,25 @@ struct vboundApp: App {
                 .keyboardShortcut("b", modifiers: .command)
                 .disabled(manager.vphoneDetected || !AppController.pathValid(vphoneCliPath))
 
-                Button("Build & Install") {
-                    manager.buildUnbound(in: unboundPath)
+                Button(manager.buildPhase.isRunning ? "Cancel Build" : "Build & Install") {
+                    if manager.buildPhase.isRunning {
+                        manager.cancelBuild()
+                    } else {
+                        manager.buildUnbound(in: unboundPath)
+                    }
                 }
                 .keyboardShortcut("i", modifiers: .command)
-                .disabled(manager.buildPhase.isRunning || !AppController.pathValid(unboundPath))
+                .disabled(!manager.buildPhase.isRunning && !AppController.pathValid(unboundPath))
 
                 Button(manager.isStreaming ? "Stop Log Stream" : "Start Log Stream") {
                     if manager.isStreaming { manager.stopLogStream() } else { manager.startLogStream() }
                 }
                 .keyboardShortcut("l", modifiers: .command)
+
+                Button(manager.isShellConnected ? "Disconnect Shell" : "Connect Shell") {
+                    if manager.isShellConnected { manager.disconnectShell() } else { manager.connectShell() }
+                }
+                .keyboardShortcut("t", modifiers: .command)
 
                 Button("Shut Down vphone…") {
                     NotificationCenter.default.post(name: .requestShutdownVphone, object: nil)

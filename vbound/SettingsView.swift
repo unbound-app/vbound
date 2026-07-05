@@ -11,6 +11,7 @@ struct SettingsView: View {
         "autoAttachEnabled", "autoStartLogStreamEnabled", "autoConnectShellEnabled",
         "autoCheckForUpdates", "updateCheckIntervalHours",
         "logBufferSize", "shellBufferSize",
+        "skippedUpdateVersion",
     ]
 
     var body: some View {
@@ -96,6 +97,7 @@ private struct AutomationSettingsView: View {
 private struct AdvancedSettingsView: View {
     @AppStorage("autoCheckForUpdates") private var autoCheckForUpdates = true
     @AppStorage("updateCheckIntervalHours") private var updateCheckIntervalHours = 24
+    @AppStorage("skippedUpdateVersion") private var skippedUpdateVersion = ""
     @AppStorage("logBufferSize")   private var logBufferSize   = 2000
     @AppStorage("shellBufferSize") private var shellBufferSize = 2000
 
@@ -109,6 +111,21 @@ private struct AdvancedSettingsView: View {
                     Text("Weekly").tag(168)
                 }
                 .disabled(!autoCheckForUpdates)
+
+                // "Skip This Version" in the update sheet has no other way to undo —
+                // without this, a misclick silently suppresses that version's prompt
+                // forever with no in-app recovery.
+                if !skippedUpdateVersion.isEmpty {
+                    HStack {
+                        Text("Skipped version \(skippedUpdateVersion)")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Clear") { skippedUpdateVersion = "" }
+                            .buttonStyle(.link)
+                            .font(.footnote)
+                    }
+                }
             }
 
             Section("Buffers") {

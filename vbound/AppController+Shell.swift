@@ -91,9 +91,11 @@ extension AppController {
         handle.write(data)
     }
 
-    func sendShellControlByte(_ byte: UInt8) {
+    // Single bytes (^C, ^D, …) and multi-byte ANSI escape sequences (arrow keys are
+    // ESC [ A / ESC [ B, not one byte) both go through here.
+    func sendShellControlBytes(_ bytes: [UInt8]) {
         guard let handle = shellInputHandle else { return }
-        handle.write(Data([byte]))
+        handle.write(Data(bytes))
     }
 
     func disconnectShell() {

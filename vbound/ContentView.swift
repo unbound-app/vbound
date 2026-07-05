@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import AppUpdater
 import Version
+import UniformTypeIdentifiers
 
 private let cardSize = NSSize(width: 600, height: 505)
 
@@ -14,6 +15,7 @@ struct ContentView: View {
     @State private var showUpdateSheet = false
 
     @State private var logSearch         = ""
+    @State private var searchMatchIndex  = 0
     @AppStorage("showINF") private var showINF = true
     @AppStorage("showERR") private var showERR = true
     @AppStorage("showDBG") private var showDBG = true
@@ -66,12 +68,14 @@ struct ContentView: View {
         }
         .onChange(of: activeTab)  { _, new in
             logAutoScroll = true  // #18 — switching tabs means you want to watch that tab live
+            searchMatchIndex = 0  // match list is tab-scoped (via filteredEntries)
             if new == .unbound {
                 unboundUnread = .none
                 if logsMerged { reactNativeUnread = .none }
             }
             if new == .reactNative { reactNativeUnread = .none }
         }
+        .onChange(of: logSearch) { _, _ in searchMatchIndex = 0 }
         .overlay {
             if showUpdateSheet {
                 UpdateOverlay(isPresented: $showUpdateSheet)
@@ -350,7 +354,38 @@ struct ContentView: View {
                     .font(.system(size: 12))
                     .textFieldStyle(.plain)
                     .focused($logSearchFocused)
+                    .onSubmit { jumpToNextMatch() }
+                    .onKeyPress { press in
+                        // ⌘G / ⇧⌘G jump between search matches while the filter field
+                        // has focus — matches are already highlighted, but there was no
+                        // way to step between them without scrolling by hand.
+                        guard press.characters.lowercased() == "g",
+                              press.modifiers.contains(.command) else { return .ignored }
+                        if press.modifiers.contains(.shift) { jumpToPreviousMatch() }
+                        else                                { jumpToNextMatch() }
+                        return .handled
+                    }
                 if !logSearch.isEmpty {
+                    Text(matchCountLabel)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                    Button { jumpToPreviousMatch() } label: {
+                        Image(systemName: "chevron.up")
+                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 10, weight: .bold))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(searchMatches.isEmpty)
+                    .help("Previous match (⇧⌘G)")
+                    Button { jumpToNextMatch() } label: {
+                        Image(systemName: "chevron.down")
+                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 10, weight: .bold))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(searchMatches.isEmpty)
+                    .help("Next match (⌘G)")
                     Button { logSearch = "" } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(.tertiary)
@@ -461,6 +496,7 @@ struct ContentView: View {
                 scrollVersion: scrollVersion,
                 autoScroll: logAutoScroll,
                 searchQuery: logSearch,
+                focusedEntryID: currentMatchID,
                 onFilterToSource: { entry in logSearch = entry.source },
                 onUserInteraction: { logAutoScroll = false },
                 onReachedBottom: { logAutoScroll = true }
@@ -549,31 +585,66 @@ struct ContentView: View {
         return .none
     }
 
+    // MARK: - Search match navigation
+
+    // Collapsed the same way LogTextView collapses for display, so a match index here
+    // lines up with an actual rendered row (a raw, pre-collapse entry could otherwise be
+    // folded into a duplicate-run's "×N" row under a different representative entry).
+    private var searchMatches: [LogEntry] {
+        guard !logSearch.isEmpty else { return [] }
+        return LogTextView.collapseConsecutive(filteredEntries).map(\.entry).filter { !$0.isHeader }
+    }
+
+    private var currentMatchID: LogEntry.ID? {
+        guard !searchMatches.isEmpty else { return nil }
+        return searchMatches[min(max(searchMatchIndex, 0), searchMatches.count - 1)].id
+    }
+
+    private var matchCountLabel: String {
+        guard !searchMatches.isEmpty else { return "0/0" }
+        return "\(min(max(searchMatchIndex, 0), searchMatches.count - 1) + 1)/\(searchMatches.count)"
+    }
+
+    private func jumpToNextMatch() {
+        guard !searchMatches.isEmpty else { return }
+        logAutoScroll = false  // browsing matches, not watching the live tail
+        searchMatchIndex = (searchMatchIndex + 1) % searchMatches.count
+    }
+
+    private func jumpToPreviousMatch() {
+        guard !searchMatches.isEmpty else { return }
+        logAutoScroll = false
+        searchMatchIndex = (searchMatchIndex - 1 + searchMatches.count) % searchMatches.count
+    }
+
     // MARK: - Shell toolbar + view
 
     @ViewBuilder
     private var shellToolbar: some View {
         HStack(spacing: 6) {
-            // SSH target — expands like the log search field
+            // SSH target — expands like the log search field. The full address
+            // (mobile@127.0.0.1:2222, always the same host) lives in the tooltip rather
+            // than inline: with the control-key row now 8 buttons wide there's rarely
+            // enough leftover width for the full string, and it was clipping (#20).
             HStack(spacing: 5) {
                 Image(systemName: "terminal")
                     .foregroundStyle(.tertiary)
                     .font(.system(size: 12))
-                Text(manager.isShellConnected ? "mobile@127.0.0.1:2222" : "not connected")
+                Text("SSH")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(Color(.controlBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 6))
+            .help(manager.isShellConnected ? "Connected to mobile@127.0.0.1:2222" : "Not connected")
 
             Group {
                 ForEach(terminalControlKeys, id: \.label) { control in
                     Button {
-                        manager.sendShellControlByte(control.byte)
+                        manager.sendShellControlBytes(control.bytes)
                     } label: {
                         Text(control.label)
                             .font(.system(size: 10, design: .monospaced))
@@ -709,6 +780,7 @@ struct ContentView: View {
                         }
                         return .handled
                     }
+                    .onPasteCommand(of: [.plainText], perform: handleShellPaste)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
@@ -756,13 +828,43 @@ struct ContentView: View {
     // Plain ASCII "^" rather than the Unicode "⌃" modifier glyph — that symbol is
     // designed to render as a tiny mark meant for NSMenuItem key-equivalent display,
     // not as normal-sized text in a button label.
-    private let terminalControlKeys: [(label: String, byte: UInt8, help: String)] = [
-        ("^C",  0x03, "Send Ctrl+C (interrupt)"),
-        ("^D",  0x04, "Send Ctrl+D (EOF)"),
-        ("^Z",  0x1A, "Send Ctrl+Z (suspend)"),
-        ("^L",  0x0C, "Clear screen"),
-        ("Tab", 0x09, "Send Tab (autocomplete)"),
+    private let terminalControlKeys: [(label: String, bytes: [UInt8], help: String)] = [
+        ("^C",  [0x03],             "Send Ctrl+C (interrupt)"),
+        ("^D",  [0x04],             "Send Ctrl+D (EOF)"),
+        ("^Z",  [0x1A],             "Send Ctrl+Z (suspend)"),
+        ("^L",  [0x0C],             "Clear screen"),
+        ("Esc", [0x1B],             "Send Escape"),
+        ("Tab", [0x09],             "Send Tab (autocomplete)"),
+        ("↑",   [0x1B, 0x5B, 0x41], "Send Up arrow (remote shell history)"),
+        ("↓",   [0x1B, 0x5B, 0x42], "Send Down arrow (remote shell history)"),
     ]
+
+    // A single-line TextField mangles pasted newlines by default — this mirrors real
+    // terminal paste semantics instead: every newline-terminated line is sent immediately,
+    // and a trailing partial line (no final newline) is left in the field to edit/submit
+    // rather than silently dropped or auto-run.
+    private func handleShellPaste(_ providers: [NSItemProvider]) {
+        guard let provider = providers.first else { return }
+        _ = provider.loadObject(ofClass: NSString.self) { reading, _ in
+            guard let text = reading as? String, !text.isEmpty else { return }
+            DispatchQueue.main.async {
+                guard text.contains("\n") else {
+                    shellInput += text
+                    return
+                }
+                let endsWithNewline = text.hasSuffix("\n")
+                var lines = text.components(separatedBy: "\n")
+                if endsWithNewline { lines.removeLast() }  // drop the empty tail from the split
+                let trailing = endsWithNewline ? "" : lines.removeLast()
+                for line in lines where !line.isEmpty {
+                    manager.sendShellInput(line)
+                    if shellHistory.last != line { shellHistory.append(line) }
+                }
+                shellHistoryIndex = nil
+                shellInput = trailing
+            }
+        }
+    }
 
     private func copyShellOutput() {
         NSPasteboard.general.clearContents()

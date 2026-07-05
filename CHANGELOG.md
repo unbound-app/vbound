@@ -9,6 +9,39 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-05
+
+### Added
+
+- A Cancel action for in-progress builds: the status strip's Build button
+  turns into a red Cancel button while building/uploading/installing, and
+  terminates the active subprocess instead of leaving you to wait it out.
+  The Actions menu's "Build & Install" (⌘I) mirrors the same toggle.
+- Connect/Disconnect Shell now has an Actions menu entry (⌘T), matching
+  every other primary action.
+- Find-next/previous navigation for the log filter: matches are counted
+  ("N/M" next to the filter field), and ⌘G/⇧⌘G (or the new chevron buttons)
+  step between them, with the current match highlighted separately from
+  the rest.
+- The shell control-key row gained Esc, ↑, and ↓ alongside the existing
+  ^C/^D/^Z/^L/Tab.
+- Pasting multi-line text into the shell input now sends each complete
+  line immediately and leaves a trailing partial line to edit, instead of
+  mangling the embedded newlines.
+
+### Changed
+
+- "Skip This Version" in the update sheet is now recoverable: Settings'
+  "Reset to Defaults" clears it, and the Advanced tab shows a "Clear"
+  button whenever a version is currently skipped.
+
+### Fixed
+
+- The shell toolbar's connection label (`mobile@127.0.0.1:2222` /
+  `not connected`) could get clipped now that the control-key row is
+  wider — replaced with a fixed "SSH" label; the full address is still
+  available as a tooltip.
+
 ## [0.9.0] - 2026-07-04
 
 ### Added
