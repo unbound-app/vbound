@@ -72,10 +72,13 @@ final class TerminatingWindowDelegate: NSObject, NSWindowDelegate {
         let shellProc   = ctrl?.shellProcess
         let logProc     = ctrl?.logStreamProcess
         let forwardProc = ctrl?.forwardProcess
+        let buildProc   = ctrl?.buildProcess
+        ctrl?.buildTask?.cancel()
         ctrl?.stop()
         terminateWithChildren(shellProc)
         terminateWithChildren(logProc)
         terminateWithChildren(forwardProc)
+        terminateWithChildren(buildProc)
         // Ask the SSH multiplexer master to exit too (ControlPersist=60 would otherwise
         // leave it running for a minute after the last client disconnects). Fire-and-forget:
         // waiting here would block the whole app quit if the control socket doesn't
@@ -115,10 +118,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let shellProc   = ctrl.shellProcess
         let logProc     = ctrl.logStreamProcess
         let forwardProc = ctrl.forwardProcess
+        let buildProc   = ctrl.buildProcess
+        ctrl.buildTask?.cancel()
         ctrl.stop()
         terminateWithChildren(shellProc)
         terminateWithChildren(logProc)
         terminateWithChildren(forwardProc)
+        terminateWithChildren(buildProc)
         let mux = Process()
         mux.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         mux.arguments     = ["ssh", "-O", "exit",
