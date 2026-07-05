@@ -50,6 +50,7 @@ extension AppController {
         args: [String],
         workingDirectory: URL? = nil,
         timeout: TimeInterval? = nil,
+        onLaunch: ((Process) -> Void)? = nil,
         onOutput: ((String) -> Void)? = nil
     ) async -> Bool {
         await withCheckedContinuation { continuation in
@@ -77,6 +78,7 @@ extension AppController {
             }
             do {
                 try p.run()
+                onLaunch?(p)
                 // Unlike the SSH calls (which get -o ConnectTimeout=5), plain pymobiledevice3
                 // invocations have no built-in timeout — if the device is in a bad USB state,
                 // this would otherwise hang the awaiting Task forever with no way to cancel.
@@ -90,7 +92,7 @@ extension AppController {
         }
     }
 
-    func run(ssh command: String) async -> Bool {
+    func run(ssh command: String, onLaunch: ((Process) -> Void)? = nil) async -> Bool {
         await run(args: [
             "sshpass", "-p", sshPassword,
             "ssh",
@@ -103,7 +105,7 @@ extension AppController {
             "-o", "ControlPersist=60",
             "mobile@127.0.0.1",
             command
-        ])
+        ], onLaunch: onLaunch)
     }
 
     func runCapture(args: [String], timeout: TimeInterval? = nil) async -> String {

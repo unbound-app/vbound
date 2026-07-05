@@ -3,7 +3,8 @@ import AppKit
 extension AppController {
 
     func buildUnbound(in directory: String) {
-        Task {
+        buildTask = Task { [weak self] in
+            guard let self else { return }
             if !isStreaming { startLogStream() }
 
             let dirPath = (directory as NSString).expandingTildeInPath
@@ -16,7 +17,7 @@ extension AppController {
             let built = await run(args: [
                 "/bin/zsh", "-l", "-c",
                 "cd '\(dirPath)' && \(makeExecutable) package DEBUG=1 -j\(ncpu) 2>&1"  // #15
-            ]) { [weak self] raw in
+            ], onLaunch: { [weak self] p in self?.buildProcess = p }) { [weak self] raw in
                 let line = raw.replacing(/\u{1B}\[[0-9;]*[A-Za-z]/, with: "")  // #2 — inline literal escapes SE-0401
                 guard line.hasPrefix("==>") || line.hasPrefix("> M") || line.hasPrefix("dm.pl:")
                 else { return }
@@ -31,12 +32,18 @@ extension AppController {
                 self?.buildLog = display
             }
             guard built else { return fail("Build failed") }
+            // Covers the race where cancelBuild() fires just as the process was already
+            // exiting on its own (terminate() has no effect after that) — without this,
+            // a cancellation landing in that narrow window would fall through and keep
+            // driving the pipeline into upload/install as if nothing happened.
+            guard !Task.isCancelled else { return }
 
             guard let debPath = findDeb(in: dirPath) else { return fail("No .deb found") }
             let debName   = URL(fileURLWithPath: debPath).lastPathComponent
             let remoteDeb = "/tmp/\(debName)"
 
             await ensurePortForward()
+            guard !Task.isCancelled else { return }
 
             buildPhase = .uploading; buildLog = ""; buildProgress = 0
             let uploaded = await run(args: [
@@ -48,37 +55,63 @@ extension AppController {
                 "-o", "ControlPath=\(AppController.sshControlPath)",  // #8
                 "-o", "ControlPersist=60",
                 debPath, "mobile@127.0.0.1:\(remoteDeb)"
-            ])
+            ], onLaunch: { [weak self] p in self?.buildProcess = p })
             guard uploaded else { return fail("Upload failed") }
+            guard !Task.isCancelled else { return }
 
             buildPhase = .installing
-            let installed = await run(ssh: "echo '\(sshPassword)' | sudo -S dpkg -i '\(remoteDeb)'")
+            let installed = await run(
+                ssh: "echo '\(sshPassword)' | sudo -S dpkg -i '\(remoteDeb)'",
+                onLaunch: { [weak self] p in self?.buildProcess = p }
+            )
             guard installed else { return fail("Install failed") }
+            guard !Task.isCancelled else { return }
 
             buildPhase = .restarting
             _ = await restartDiscord()
+            guard !Task.isCancelled else { return }
 
             buildPhase = .succeeded; buildLog = ""; buildProgress = 0
             scheduleReset()
         }
     }
 
+    // Terminates whichever child process the pipeline is currently waiting on and marks
+    // the Task cancelled so every stage guard above bails instead of advancing to the
+    // next step. Only meaningful while a stage is actually running — a stray click once
+    // the pipeline already finished is a no-op.
+    func cancelBuild() {
+        guard buildPhase.isRunning else { return }
+        buildTask?.cancel()
+        buildProcess?.terminate()
+        buildProcess = nil
+        buildPhase = .cancelled; buildLog = ""; buildProgress = 0
+        scheduleReset()
+    }
+
     func fail(_ message: String) {
+        // fail() is only ever called from inside buildUnbound's own Task, so this
+        // reflects that Task's cancellation state — suppresses the generic "X failed"
+        // toast that would otherwise overwrite the .cancelled state cancelBuild() just set.
+        guard !Task.isCancelled else { return }
         buildPhase = .failed(message); buildLog = ""; buildProgress = 0
     }
 
-    // Auto-dismiss a success toast after a few seconds; failures stay until the
-    // user dismisses them explicitly (via dismissBuildResult()).
+    // Auto-dismiss a success/cancelled toast after a few seconds; failures stay until
+    // the user dismisses them explicitly (via dismissBuildResult()).
     func scheduleReset() {
         Task {
             try? await Task.sleep(for: .seconds(4))
-            if case .succeeded = buildPhase { buildPhase = .idle; buildLog = "" }
+            switch buildPhase {
+            case .succeeded, .cancelled: buildPhase = .idle; buildLog = ""
+            default: break
+            }
         }
     }
 
     func dismissBuildResult() {
         switch buildPhase {
-        case .succeeded, .failed: buildPhase = .idle; buildLog = ""
+        case .succeeded, .failed, .cancelled: buildPhase = .idle; buildLog = ""
         default: break
         }
     }

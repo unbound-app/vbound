@@ -197,14 +197,20 @@ struct ContentView: View {
             .help("Launch Discord")
 
             Button {
-                logAutoScroll = true  // #18 — same for a fresh build/install run
-                manager.buildUnbound(in: unboundPath)
+                if manager.buildPhase.isRunning {
+                    manager.cancelBuild()
+                } else {
+                    logAutoScroll = true  // #18 — same for a fresh build/install run
+                    manager.buildUnbound(in: unboundPath)
+                }
             } label: {
-                Label("Build", systemImage: "hammer.fill")
+                Label(manager.buildPhase.isRunning ? "Cancel" : "Build",
+                      systemImage: manager.buildPhase.isRunning ? "xmark" : "hammer.fill")
             }
             .buttonStyle(.bordered)
-            .disabled(manager.buildPhase.isRunning || !pathValid(unboundPath))
-            .help("Build & Install")
+            .tint(manager.buildPhase.isRunning ? .red : Color.accentColor)
+            .disabled(!manager.buildPhase.isRunning && !pathValid(unboundPath))
+            .help(manager.buildPhase.isRunning ? "Cancel build" : "Build & Install")
 
             Divider().frame(height: 16)
 
@@ -237,6 +243,8 @@ struct ContentView: View {
         switch manager.buildPhase {
         case .succeeded:
             resultRow(icon: "checkmark.circle.fill", tint: .green, message: manager.buildPhase.label, showDismiss: false)
+        case .cancelled:
+            resultRow(icon: "xmark.circle.fill", tint: .secondary, message: manager.buildPhase.label, showDismiss: false)
         case .failed:
             resultRow(icon: "exclamationmark.triangle.fill", tint: .red, message: manager.buildPhase.label, showDismiss: true)
         default:

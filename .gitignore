@@ -1,15 +1,9 @@
 # Xcode
-#
-# gitignore contributors: remember to update Global/Xcode.gitignore, Objective-C.gitignore & Swift.gitignore
 
 ## User settings
 xcuserdata/
 
-## Xcode 8 and earlier
-*.xcscmblueprint
-*.xccheckout
-
-## Xcode 9 and later
+## Xcode
 *.xcscmblueprint
 DerivedData/
 *.moved-aside
@@ -25,11 +19,6 @@ Package.resolved.orig
 
 ## Obj-C/Swift specific
 *.hmap
-
-## App packaging
-*.ipa
-*.dSYM.zip
-*.dSYM
 
 ## Playgrounds
 timeline.xctimeline

@@ -174,6 +174,7 @@ final class ANSILineBuffer {
 enum BuildPhase: Equatable {
     case idle, building, uploading, installing, restarting
     case succeeded
+    case cancelled
     case failed(String)
 
     var isActive: Bool { self != .idle }
@@ -193,6 +194,7 @@ enum BuildPhase: Equatable {
         case .installing:      return "Installing…"
         case .restarting:      return "Restarting Discord…"
         case .succeeded:       return "Build installed"
+        case .cancelled:       return "Build cancelled"
         case .failed(let msg): return msg
         }
     }

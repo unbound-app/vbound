@@ -34,6 +34,8 @@ final class AppController: @unchecked Sendable {
 
     weak var ourWindow:   NSWindow?
     var forwardProcess:   Process?
+    var buildTask:        Task<Void, Never>?
+    var buildProcess:     Process?
     var logStreamTask:    Task<Void, Never>?
     var logStreamProcess: Process?
     var logStreamAutoReconnect = false
