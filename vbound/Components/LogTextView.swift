@@ -259,6 +259,23 @@ struct LogTextView: NSViewRepresentable {
         let lastIndex: Int
     }
 
+    // Cheap stand-in for "would buildContent() actually produce something different."
+    // NSViewRepresentable.updateNSView fires on every SwiftUI re-render that touches this
+    // view, not just when entries/searchQuery/focusedEntryID themselves changed — this
+    // view sits inside ContentView, which has plenty of unrelated @State (shellInput,
+    // shellHistoryIndex, etc.) whose changes would otherwise trigger a full rebuild of
+    // the attributed string (an O(n) pass — collapsing, NSObject-detection regex, and
+    // search-highlight scanning over every buffered line) for no reason. First/last id
+    // + count is enough to distinguish "genuinely different content" from "same content,
+    // unrelated state changed elsewhere" without comparing the whole array.
+    struct RenderInputs: Equatable {
+        let count:          Int
+        let firstID:        LogEntry.ID?
+        let lastID:         LogEntry.ID?
+        let searchQuery:    String
+        let focusedEntryID: LogEntry.ID?
+    }
+
     // The raw syslog line can carry incidental trailing whitespace/newlines that vary
     // between otherwise-identical occurrences (invisible once rendered, since the
     // message is trimmed for display) — normalize before comparing so that noise
@@ -364,21 +381,33 @@ struct LogTextView: NSViewRepresentable {
         tv.onUserInteraction = onUserInteraction
         tv.onReachedBottom   = onReachedBottom
 
-        let result = buildContent()
-        storage.setAttributedString(result.str)
-        tv.entryRanges     = result.entryRanges
-        tv.timestampRanges = result.timestampRanges
-        tv.popoverRanges   = result.popoverRanges
+        let currentInputs = RenderInputs(
+            count: entries.count,
+            firstID: entries.first?.id,
+            lastID: entries.last?.id,
+            searchQuery: searchQuery,
+            focusedEntryID: focusedEntryID
+        )
 
-        // Jump to a specific search match (⌘G / next-match button). Gated on the target
-        // actually changing so this doesn't re-scroll on every unrelated re-render (e.g.
-        // a new log line streaming in) while the same match is still focused.
-        if let focusedEntryID, focusedEntryID != c.lastFocusedEntryID,
-           let hit = result.entryRanges.first(where: { $0.entry.id == focusedEntryID }) {
-            c.lastFocusedEntryID = focusedEntryID
-            tv.scrollRangeToVisible(hit.range)
-        } else if focusedEntryID == nil {
-            c.lastFocusedEntryID = nil
+        if currentInputs != c.lastRenderInputs {
+            let result = buildContent()
+            storage.setAttributedString(result.str)
+            tv.entryRanges     = result.entryRanges
+            tv.timestampRanges = result.timestampRanges
+            tv.popoverRanges   = result.popoverRanges
+            c.lastRenderInputs = currentInputs
+
+            // Jump to a specific search match (⌘G / next-match button). Gated on the
+            // target actually changing so this doesn't re-scroll while the same match
+            // is still focused — note this can only fire inside this branch anyway,
+            // since focusedEntryID is itself part of the fingerprint above.
+            if let focusedEntryID, focusedEntryID != c.lastFocusedEntryID,
+               let hit = result.entryRanges.first(where: { $0.entry.id == focusedEntryID }) {
+                c.lastFocusedEntryID = focusedEntryID
+                tv.scrollRangeToVisible(hit.range)
+            } else if focusedEntryID == nil {
+                c.lastFocusedEntryID = nil
+            }
         }
 
         let shouldScroll = autoScroll && (entries.count > c.lastCount || scrollVersion != c.lastVersion)
@@ -562,6 +591,7 @@ struct LogTextView: NSViewRepresentable {
         var lastCount   = 0
         var lastVersion = 0
         var lastFocusedEntryID: LogEntry.ID?
+        var lastRenderInputs: RenderInputs?
         var hasSeenInitialLayout = false
         var ignoreInteractionUntil = Date.distantPast
         private var popover: NSPopover?
