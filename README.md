@@ -5,7 +5,7 @@
 
 macOS floating panel that attaches to the vphone window and streamlines Unbound development: boot the virtual device, build and deploy the tweak over SSH, and stream live device logs.
 
-![vbound](https://adriancastro.dev/cq3r0yses7j3.png)
+![vbound](https://adriancastro.dev/7hbw60sjnzfq.png)
 
 ## Requirements
 
