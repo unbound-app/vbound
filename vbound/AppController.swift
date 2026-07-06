@@ -19,6 +19,8 @@ final class AppController: @unchecked Sendable {
     var isShellConnected = false
     var isShellConnecting = false
     var discordLaunchFailed = false
+    var isBooting        = false
+    var isLaunchingDiscord = false
     var bootedVphone     = false
     var vphoneUDID:      String? = nil
 
@@ -144,6 +146,7 @@ final class AppController: @unchecked Sendable {
         guard let vphoneFrame = findVphoneWindowFrame() else {
             // vphoneDetected = process running (true even when minimized)
             vphoneDetected = app != nil
+            if vphoneDetected { isBooting = false }
             updateWindowTitle()
             guard isAttached else { return }
             isAttached = false
@@ -156,6 +159,7 @@ final class AppController: @unchecked Sendable {
             return
         }
         vphoneDetected = true
+        isBooting = false
         if autoAttachEnabled {
             if !isAttached { ourWindow?.orderFront(nil) }
             positionBeside(vphoneFrame)

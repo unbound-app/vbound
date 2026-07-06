@@ -11,7 +11,13 @@ extension AppController {
             let ncpu    = ProcessInfo.processInfo.processorCount
 
             buildLog = ""; buildProgress = 0; buildPhase = .building
-            let totalSteps     = estimateBuildSteps(in: dirPath)
+            // Off the main thread: this walks the entire source tree with
+            // FileManager.enumerator, and buildTask inherits AppController's MainActor
+            // context — called directly, this would run synchronously on the main thread
+            // and could visibly hitch the window right as the progress bar tries to appear.
+            let totalSteps = await Task.detached {
+                AppController.estimateBuildSteps(in: dirPath)
+            }.value
             var completedSteps = 0
 
             let built = await run(args: [
@@ -126,7 +132,10 @@ extension AppController {
             .first { FileManager.default.isExecutableFile(atPath: $0) } ?? "make"
     }
 
-    private func estimateBuildSteps(in dirPath: String) -> Int {
+    // Pure function of dirPath with no actor-isolated state — nonisolated static so it
+    // can run on Task.detached's background executor without a MainActor hop, matching
+    // the same pattern AppController+LogStream.swift's parseLiveSyslogLine already uses.
+    private nonisolated static func estimateBuildSteps(in dirPath: String) -> Int {
         guard let e = FileManager.default.enumerator(
             at: URL(fileURLWithPath: dirPath),
             includingPropertiesForKeys: nil,

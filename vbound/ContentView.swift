@@ -171,12 +171,12 @@ struct ContentView: View {
                     manager.bootVphone(in: vphoneCliPath)
                 }
             } label: {
-                Label(manager.vphoneDetected ? "Stop" : "Boot",
+                Label(manager.vphoneDetected ? "Stop" : (manager.isBooting ? "Booting…" : "Boot"),
                       systemImage: manager.vphoneDetected ? "stop.fill" : "power")
             }
             .buttonStyle(.borderedProminent)
             .tint(manager.vphoneDetected ? .red : Color.accentColor)
-            .disabled(!manager.vphoneDetected && !pathValid(vphoneCliPath))
+            .disabled(manager.isBooting || (!manager.vphoneDetected && !pathValid(vphoneCliPath)))
             .help(manager.vphoneDetected ? "Shut down vphone" : bootHelpText)
             .confirmationDialog("Shut down vphone?", isPresented: $showShutdownConfirm) {
                 Button("Shut Down", role: .destructive) { manager.shutdownVphone() }
@@ -199,7 +199,7 @@ struct ContentView: View {
                 Label { Text("Launch Discord") } icon: { Image("Discord") }
             }
             .buttonStyle(.bordered)
-            .disabled(!manager.vphoneDetected)
+            .disabled(!manager.vphoneDetected || manager.isLaunchingDiscord)
             .help(manager.discordLaunchFailed
                   ? "Failed to restart Discord — check the device password in Settings"
                   : "Launch Discord")
@@ -912,6 +912,7 @@ struct ContentView: View {
     // A disabled button with a static tooltip gives no clue *why* — surface the actual
     // reason (bad path vs. already busy) instead of making the user dig into Settings.
     private var bootHelpText: String {
+        if manager.isBooting           { return "Booting…" }
         if manager.vphoneDetected      { return "vphone is already running" }
         if !pathValid(vphoneCliPath)   { return "vphone-cli path is invalid — check Settings" }
         return "Boot vphone"

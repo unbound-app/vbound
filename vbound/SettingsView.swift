@@ -28,6 +28,9 @@ struct SettingsView: View {
             Divider()
 
             HStack {
+                Text(appVersionText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Button("Reset to Defaults…") { showResetConfirm = true }
                     .buttonStyle(.link)
@@ -49,6 +52,14 @@ struct SettingsView: View {
         } message: {
             Text("This resets paths, the device password, automation, update, and buffer settings back to their defaults.")
         }
+    }
+
+    // For quick reference against CHANGELOG.md/GitHub releases when reporting a bug —
+    // there was previously nowhere in the app itself that showed this.
+    private var appVersionText: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build   = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        return "vbound \(version) (\(build))"
     }
 }
 

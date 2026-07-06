@@ -3,6 +3,12 @@ import AppKit
 extension AppController {
 
     func bootVphone(in directory: String) {
+        // vphoneDetected doesn't flip true until the VM actually finishes booting (which
+        // takes a while), and the toolbar button is only disabled by vphoneDetected — a
+        // few impatient clicks in that window would otherwise spawn multiple concurrent
+        // `make boot` processes (port conflicts, duplicate VM instances, ...).
+        guard !isBooting, !vphoneDetected else { return }
+        isBooting = true
         bootedVphone = true
         let dirPath = (directory as NSString).expandingTildeInPath
         let p = Process()
@@ -10,6 +16,16 @@ extension AppController {
         p.arguments = ["-l", "-c",
                        "cd '\(dirPath)' && nohup make boot > /dev/null 2>&1 & disown $!"]
         try? p.run()
+
+        // Booting can fail silently (wrong path deeper than the top-level directory
+        // check, missing dependencies, etc.) — without this, a failed boot would leave
+        // isBooting stuck true forever, since only actual detection in checkAndAttach()
+        // clears it, permanently disabling the button short of relaunching the app.
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(45))
+            guard let self, self.isBooting, !self.vphoneDetected else { return }
+            self.isBooting = false
+        }
     }
 
     func shutdownVphone() {
@@ -34,7 +50,12 @@ extension AppController {
     }
 
     func launchDiscord() {
+        // Same class of gap as bootVphone() — without this, double-clicking before the
+        // first attempt finishes would fire overlapping SSH restart commands.
+        guard !isLaunchingDiscord else { return }
+        isLaunchingDiscord = true
         Task {
+            defer { isLaunchingDiscord = false }
             if !isStreaming { startLogStream() }
             await ensurePortForward()
             let restarted = await restartDiscord()
