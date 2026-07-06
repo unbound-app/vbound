@@ -231,6 +231,13 @@ struct vboundApp: App {
                     NotificationCenter.default.post(name: .checkForUpdates, object: nil)
                 }
                 .keyboardShortcut("u", modifiers: .command)
+                Divider()
+                Button("View on GitHub") {
+                    NSWorkspace.shared.open(URL(string: "https://github.com/unbound-app/vbound")!)
+                }
+                Button("Report an Issue…") {
+                    NSWorkspace.shared.open(URL(string: "https://github.com/unbound-app/vbound/issues/new")!)
+                }
             }
             CommandMenu("Actions") {
                 // Mirrors the status strip's merged Boot/Stop button — the toolbar

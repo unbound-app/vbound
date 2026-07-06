@@ -698,6 +698,16 @@ struct ContentView: View {
                 ForEach(terminalControlKeys, id: \.label) { control in
                     Button {
                         manager.sendShellControlBytes(control.bytes)
+                        // ^L alone only asks the remote to redraw — ANSILineBuffer
+                        // deliberately drops the clear-screen escape sequence the remote
+                        // sends back (non-SGR CSI sequences are out of scope for this
+                        // terminal emulation), so without this the label "Clear screen"
+                        // wouldn't actually clear anything locally, just add a redrawn
+                        // prompt below all the existing scrollback.
+                        if control.label == "^L" {
+                            manager.shellBuffer.reset()
+                            manager.shellLines = manager.shellBuffer.lines
+                        }
                     } label: {
                         Text(control.label)
                             .font(.system(size: 10, design: .monospaced))
@@ -878,7 +888,14 @@ struct ContentView: View {
             // While merged, the single "Logs" tab (identity `.unbound`) shows both
             // subsystems at once, so viewing it clears unread for either one.
             let isViewingThisTab = logsMerged ? (activeTab == .unbound) : (activeTab == tab)
-            guard !isViewingThisTab else { continue }
+            // An error hidden by the ERR chip is still invisible even while you're parked
+            // on this exact tab — without this, "viewing the tab" was treated as "saw
+            // everything in it" regardless of the level filter, so toggling ERR off could
+            // hide a real crash/error with no indication anywhere. Scoped to ERR only:
+            // filtering INF/DBG is a deliberate noise-reduction choice and shouldn't earn
+            // a badge just because it happened to arrive while filtered out.
+            let hiddenByErrorFilter = entry.level == "ERR" && !showERR
+            guard !isViewingThisTab || hiddenByErrorFilter else { continue }
             let level: UnreadLevel = entry.level == "ERR" ? .error : .info
             if sub == .unbound {
                 if level == .error || unboundUnread == .none { unboundUnread = level }
