@@ -903,7 +903,7 @@ struct ContentView: View {
     private var buildHelpText: String {
         if manager.buildPhase.isRunning { return "Cancel build" }
         if !pathValid(unboundPath)      { return "Unbound tweak path is invalid — check Settings" }
-        return "Build & Install"
+        return "Build Tweak"
     }
 
     private func styledShellText() -> Text {

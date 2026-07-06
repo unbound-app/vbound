@@ -28,41 +28,8 @@ final class TerminatingWindowDelegate: NSObject, NSWindowDelegate {
 
     private func handleClose() {
         guard let ctrl = controller else { quit(); return }
-
-        if ctrl.buildPhase.isRunning {
-            let alert = NSAlert()
-            alert.messageText     = "Build in progress"
-            alert.informativeText = "vbound is currently building, uploading, or installing. " +
-                                    "Quitting now will interrupt it."
-            alert.alertStyle      = .warning
-            alert.addButton(withTitle: "Quit Anyway")
-            alert.addButton(withTitle: "Cancel")
-            guard alert.runModal() == .alertFirstButtonReturn else { return }
-        }
-
-        if ctrl.bootedVphone && ctrl.vphoneDetected {
-            let alert = NSAlert()
-            alert.messageText     = "Shut down vphone?"
-            alert.informativeText = "vphone was started by vbound and is still running. " +
-                                    "Quitting will shut it down gracefully."
-            alert.alertStyle      = .warning
-            alert.addButton(withTitle: "Shut Down & Quit")
-            alert.addButton(withTitle: "Cancel")
-
-            if alert.runModal() == .alertFirstButtonReturn {
-                if let udid = ctrl.vphoneUDID {
-                    let p = Process()
-                    p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                    p.arguments     = ["pymobiledevice3", "diagnostics", "shutdown", "--udid", udid]
-                    p.environment   = ctrl.enrichedEnvironment
-                    try? p.run()
-                    p.waitUntilExit()
-                }
-                quit(ctrl)
-            }
-        } else {
-            quit(ctrl)
-        }
+        guard confirmQuit(for: ctrl) else { return }
+        quit(ctrl)
     }
 
     private func quit(_ ctrl: AppController? = nil) {
@@ -109,6 +76,15 @@ final class TerminatingWindowDelegate: NSObject, NSWindowDelegate {
 // force-quit, etc.) so processes are always cleaned up even if TerminatingWindowDelegate
 // somehow does not fire (e.g. macOS 26 SwiftUI window management changes).
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    // ⌘Q and Dock → Quit land here, going straight through NSApp.terminate rather than
+    // the window's close button / windowShouldClose — without this, the single most
+    // common quit gesture skipped the build-in-progress and vphone-booted-by-us warnings
+    // entirely, silently interrupting either one with no chance to cancel.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let ctrl = AppController.current else { return .terminateNow }
+        return confirmQuit(for: ctrl) ? .terminateNow : .terminateCancel
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         guard let ctrl = AppController.current else { return }
         // Same capture-before-stop ordering as TerminatingWindowDelegate.quit() — this
@@ -132,6 +108,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              "mobile@127.0.0.1"]
         try? mux.run()
     }
+}
+
+// Shared by both quit paths — the window's close button (TerminatingWindowDelegate) and
+// ⌘Q/Dock Quit (AppDelegate.applicationShouldTerminate) — so the same warnings and the
+// same graceful-shutdown side effect apply regardless of which gesture triggered the quit.
+func confirmQuit(for ctrl: AppController) -> Bool {
+    if ctrl.buildPhase.isRunning {
+        let alert = NSAlert()
+        alert.messageText     = "Build in progress"
+        alert.informativeText = "vbound is currently building, uploading, or installing. " +
+                                "Quitting now will interrupt it."
+        alert.alertStyle      = .warning
+        alert.addButton(withTitle: "Quit Anyway")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+    }
+
+    if ctrl.bootedVphone && ctrl.vphoneDetected {
+        let alert = NSAlert()
+        alert.messageText     = "Shut down vphone?"
+        alert.informativeText = "vphone was started by vbound and is still running. " +
+                                "Quitting will shut it down gracefully."
+        alert.alertStyle      = .warning
+        alert.addButton(withTitle: "Shut Down & Quit")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+
+        if let udid = ctrl.vphoneUDID {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            p.arguments     = ["pymobiledevice3", "diagnostics", "shutdown", "--udid", udid]
+            p.environment   = ctrl.enrichedEnvironment
+            try? p.run()
+            p.waitUntilExit()
+        }
+    }
+
+    return true
 }
 
 // `sshpass`/`pymobiledevice3` wrappers can fork a real child (e.g. sshpass execs ssh as a
@@ -201,6 +215,12 @@ struct vboundApp: App {
         }
         .windowResizability(.contentSize)
         .commands {
+            // vbound is a single fixed-size panel bound to one AppController instance
+            // (shared via .environment(manager)) — a second window from the default
+            // WindowGroup "New Window" command would drive the *same* controller, and
+            // WindowAccessor's configureWindow would silently steal manager.ourWindow
+            // out from under the first window the next time it ran.
+            CommandGroup(replacing: .newItem) {}
             CommandGroup(replacing: .appInfo) {
                 Button("About vbound") {
                     NSApp.orderFrontStandardAboutPanel(nil)
@@ -213,13 +233,20 @@ struct vboundApp: App {
                 .keyboardShortcut("u", modifiers: .command)
             }
             CommandMenu("Actions") {
-                Button("Boot vphone") {
-                    manager.bootVphone(in: vphoneCliPath)
+                // Mirrors the status strip's merged Boot/Stop button — the toolbar
+                // collapsed these into one toggle, so the menu should read the same way
+                // instead of still offering them as two separately-enabled items.
+                Button(manager.vphoneDetected ? "Shut Down vphone…" : "Boot vphone") {
+                    if manager.vphoneDetected {
+                        NotificationCenter.default.post(name: .requestShutdownVphone, object: nil)
+                    } else {
+                        manager.bootVphone(in: vphoneCliPath)
+                    }
                 }
                 .keyboardShortcut("b", modifiers: .command)
-                .disabled(manager.vphoneDetected || !AppController.pathValid(vphoneCliPath))
+                .disabled(!manager.vphoneDetected && !AppController.pathValid(vphoneCliPath))
 
-                Button(manager.buildPhase.isRunning ? "Cancel Build" : "Build & Install") {
+                Button(manager.buildPhase.isRunning ? "Cancel Build" : "Build Tweak") {
                     if manager.buildPhase.isRunning {
                         manager.cancelBuild()
                     } else {
@@ -238,12 +265,6 @@ struct vboundApp: App {
                     if manager.isShellConnected { manager.disconnectShell() } else { manager.connectShell() }
                 }
                 .keyboardShortcut("t", modifiers: .command)
-
-                Button("Shut Down vphone…") {
-                    NotificationCenter.default.post(name: .requestShutdownVphone, object: nil)
-                }
-                .keyboardShortcut("b", modifiers: [.command, .shift])
-                .disabled(!manager.vphoneDetected)
 
                 Button("Launch Discord") {
                     manager.launchDiscord()

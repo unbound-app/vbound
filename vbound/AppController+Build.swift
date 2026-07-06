@@ -73,6 +73,7 @@ extension AppController {
             guard restarted else { return fail("Discord restart failed") }
 
             buildPhase = .succeeded; buildLog = ""; buildProgress = 0
+            NSSound(named: "Glass")?.play()  // audible cue for whenever you've stepped away
             scheduleReset()
         }
     }
@@ -96,6 +97,7 @@ extension AppController {
         // toast that would otherwise overwrite the .cancelled state cancelBuild() just set.
         guard !Task.isCancelled else { return }
         buildPhase = .failed(message); buildLog = ""; buildProgress = 0
+        NSSound(named: "Basso")?.play()  // audible cue for whenever you've stepped away
     }
 
     // Auto-dismiss a success/cancelled toast after a few seconds; failures stay until
