@@ -198,7 +198,21 @@ struct ContentView: View {
             }
             .buttonStyle(.bordered)
             .disabled(!manager.vphoneDetected)
-            .help("Launch Discord")
+            .help(manager.discordLaunchFailed
+                  ? "Failed to restart Discord — check the device password in Settings"
+                  : "Launch Discord")
+            // The SSH command is fire-and-forget from the caller's perspective, so without
+            // this a failed restart (bad password, device offline) looked identical to a
+            // successful one — nothing to click, nothing to dismiss, just silence.
+            .overlay(alignment: .topTrailing) {
+                if manager.discordLaunchFailed {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 6, height: 6)
+                        .offset(x: 2, y: -2)
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: manager.discordLaunchFailed)
 
             Button {
                 if manager.buildPhase.isRunning {

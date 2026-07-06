@@ -18,6 +18,7 @@ final class AppController: @unchecked Sendable {
     var shellLines:      [ShellLine] = []
     var isShellConnected = false
     var isShellConnecting = false
+    var discordLaunchFailed = false
     var bootedVphone     = false
     var vphoneUDID:      String? = nil
 

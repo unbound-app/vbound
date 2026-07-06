@@ -68,8 +68,9 @@ extension AppController {
             guard !Task.isCancelled else { return }
 
             buildPhase = .restarting
-            _ = await restartDiscord()
+            let restarted = await restartDiscord()
             guard !Task.isCancelled else { return }
+            guard restarted else { return fail("Discord restart failed") }
 
             buildPhase = .succeeded; buildLog = ""; buildProgress = 0
             scheduleReset()
