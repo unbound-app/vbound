@@ -224,7 +224,7 @@ struct ContentView: View {
                     manager.buildUnbound(in: unboundPath)
                 }
             } label: {
-                Label(manager.buildPhase.isRunning ? "Cancel" : "Build Tweak",
+                Label(manager.buildPhase.isRunning ? "Cancel Build" : "Build Tweak",
                       systemImage: manager.buildPhase.isRunning ? "xmark" : "hammer.fill")
             }
             .buttonStyle(.bordered)
