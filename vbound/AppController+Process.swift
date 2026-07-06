@@ -3,8 +3,12 @@ import AppKit
 extension AppController {
 
     // Device SSH/sudo password — configurable in Settings, defaults to vphone's stock "alpine".
+    // Trimmed because a pasted password with a trailing newline/space (easy to pick up
+    // from a copied terminal line or text file) would otherwise silently fail SSH/sudo
+    // auth with no indication that invisible whitespace was the actual cause.
     var sshPassword: String {
-        let stored = UserDefaults.standard.string(forKey: "sshPassword")
+        let stored = UserDefaults.standard.string(forKey: "sshPassword")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         return (stored?.isEmpty == false) ? stored! : "alpine"
     }
 
