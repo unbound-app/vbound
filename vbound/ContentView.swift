@@ -443,11 +443,27 @@ struct ContentView: View {
             Divider().frame(height: 16)
 
             Group {
-                Button { manager.logLines = [] } label: {
-                    Image(systemName: "trash")
+                // ⌘K only while a log tab is showing — the shell toolbar's Clear button
+                // claims the same shortcut while Shell is active, so exactly one of the
+                // two is ever attached at a time (both toolbars stay mounted underneath
+                // the cross-fade, so having both claim it unconditionally would be
+                // ambiguous). Mirrors Terminal.app's own ⌘K-clears-buffer convention.
+                if activeTab != .shell {
+                    Button { manager.logLines = [] } label: {
+                        Image(systemName: "trash")
+                    }
+                    .keyboardShortcut("k", modifiers: .command)
+                } else {
+                    Button { manager.logLines = [] } label: {
+                        Image(systemName: "trash")
+                    }
                 }
-                .help("Clear all logs")
+            }
+            .buttonStyle(.borderless)
+            .font(.system(size: 14))
+            .help("Clear all logs")
 
+            Group {
                 Button { copyLogs() } label: {
                     Image(systemName: "doc.on.doc")
                 }
@@ -705,19 +721,37 @@ struct ContentView: View {
                     Image(systemName: "doc.on.doc")
                 }
                 .help("Copy shell output to clipboard")
-
-                Button {
-                    manager.shellBuffer.reset()
-                    manager.shellLines = manager.shellBuffer.lines
-                    if manager.isShellConnected { manager.sendShellInput("") }
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .help("Clear terminal output")
             }
             .buttonStyle(.borderless)
             .font(.system(size: 14))
             .layoutPriority(1)
+
+            Group {
+                // ⌘K only while Shell is active — see the matching comment on the log
+                // toolbar's own Clear button for why this has to be conditional.
+                if activeTab == .shell {
+                    Button {
+                        manager.shellBuffer.reset()
+                        manager.shellLines = manager.shellBuffer.lines
+                        if manager.isShellConnected { manager.sendShellInput("") }
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .keyboardShortcut("k", modifiers: .command)
+                } else {
+                    Button {
+                        manager.shellBuffer.reset()
+                        manager.shellLines = manager.shellBuffer.lines
+                        if manager.isShellConnected { manager.sendShellInput("") }
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                }
+            }
+            .buttonStyle(.borderless)
+            .font(.system(size: 14))
+            .layoutPriority(1)
+            .help("Clear terminal output")
 
             Divider().frame(height: 16)
 

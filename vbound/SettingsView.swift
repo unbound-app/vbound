@@ -56,6 +56,7 @@ private struct GeneralSettingsView: View {
     @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
     @AppStorage("unboundPath")   private var unboundPath   = NSHomeDirectory() + "/Developer/loader-ios"
     @AppStorage("sshPassword") private var sshPassword = ""
+    @State private var isPasswordVisible = false
 
     var body: some View {
         Form {
@@ -65,7 +66,23 @@ private struct GeneralSettingsView: View {
             }
 
             Section("Connection") {
-                SecureField("Device password", text: $sshPassword, prompt: Text("alpine (default)"))
+                HStack {
+                    Group {
+                        if isPasswordVisible {
+                            TextField("Device password", text: $sshPassword, prompt: Text("alpine (default)"))
+                        } else {
+                            SecureField("Device password", text: $sshPassword, prompt: Text("alpine (default)"))
+                        }
+                    }
+                    Button {
+                        isPasswordVisible.toggle()
+                    } label: {
+                        Image(systemName: isPasswordVisible ? "eye.slash" : "eye")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help(isPasswordVisible ? "Hide password" : "Show password")
+                }
                 Text("Used for SSH login and sudo on the vphone device.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)

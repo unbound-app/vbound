@@ -565,6 +565,11 @@ struct LogTextView: NSViewRepresentable {
         var hasSeenInitialLayout = false
         var ignoreInteractionUntil = Date.distantPast
         private var popover: NSPopover?
+        // Backs the one shared copy button both popovers use — text is selectable in
+        // showCodePopover's NSTextView already, but there was no one-click way to grab
+        // it, unlike every other output surface in the app (log/shell toolbars both
+        // have a dedicated copy button).
+        private var pendingPopoverCopyText: String?
 
         // MARK: NSTextViewDelegate — link clicks
 
@@ -632,7 +637,21 @@ struct LogTextView: NSViewRepresentable {
             let sv = NSScrollView(frame: NSRect(x: 0, y: 0, width: w, height: h))
             sv.documentView        = tv
             sv.hasVerticalScroller = true; sv.hasHorizontalScroller = true
-            let vc = NSViewController(); vc.view = sv
+
+            // Overlaid on top of the scroll view rather than a separate header row —
+            // simpler than resizing the popover to make room, and the generous width
+            // padding above already keeps it clear of most content.
+            let container = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
+            container.addSubview(sv)
+            let copyImage = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy") ?? NSImage()
+            let copyButton = NSButton(image: copyImage, target: self, action: #selector(copyPendingPopoverText))
+            copyButton.isBordered = false
+            copyButton.toolTip = "Copy"
+            copyButton.frame = NSRect(x: w - 24, y: h - 22, width: 18, height: 18)
+            container.addSubview(copyButton)
+            pendingPopoverCopyText = code
+
+            let vc = NSViewController(); vc.view = container
             let p  = NSPopover()
             p.contentViewController = vc
             p.contentSize = NSSize(width: w, height: h)
@@ -641,19 +660,40 @@ struct LogTextView: NSViewRepresentable {
             popover = p
         }
 
+        @objc private func copyPendingPopoverText() {
+            guard let text = pendingPopoverCopyText else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }
+
         func showTimestampPopover(time: String, in view: NSView, anchor: NSRect) {
             guard !time.isEmpty else { return }
             popover?.close()
             let label = NSTextField(labelWithString: time)
             label.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
             label.sizeToFit()
+
+            let copyImage = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy") ?? NSImage()
+            let copyButton = NSButton(image: copyImage, target: self, action: #selector(copyPendingPopoverText))
+            copyButton.isBordered = false
+            copyButton.toolTip = "Copy"
+            copyButton.frame = NSRect(x: 0, y: 0, width: 16, height: 16)
+
             let pad: CGFloat = 10
+            let gap: CGFloat = 6
+            let contentHeight = max(label.frame.height, copyButton.frame.height)
             let frame = NSRect(x: 0, y: 0,
-                               width:  label.frame.width  + pad * 2,
-                               height: label.frame.height + pad * 2)
+                               width:  label.frame.width + gap + copyButton.frame.width + pad * 2,
+                               height: contentHeight + pad * 2)
             let container = NSView(frame: frame)
-            label.frame   = label.frame.offsetBy(dx: pad, dy: pad)
+            label.frame   = label.frame.offsetBy(dx: pad, dy: pad + (contentHeight - label.frame.height) / 2)
+            copyButton.frame = copyButton.frame.offsetBy(
+                dx: pad + label.frame.width + gap,
+                dy: pad + (contentHeight - copyButton.frame.height) / 2)
             container.addSubview(label)
+            container.addSubview(copyButton)
+            pendingPopoverCopyText = time
+
             let vc = NSViewController(); vc.view = container
             let p  = NSPopover()
             p.contentViewController = vc
