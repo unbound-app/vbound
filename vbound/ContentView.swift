@@ -147,6 +147,7 @@ struct ContentView: View {
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .help(statusHelpText)
                 .contextMenu {
                     if let udid = manager.vphoneUDID {
                         Button("Copy UDID") {
@@ -158,24 +159,25 @@ struct ContentView: View {
 
             Spacer(minLength: 8)
 
+            // One toggling button instead of two permanently-visible ones — Boot and Stop
+            // are never both relevant at once (vphoneDetected gates them oppositely
+            // already), so showing both wasted a full button's worth of width. Mirrors
+            // the Stream/Connect toggles elsewhere: same prominent style throughout,
+            // only the tint swaps.
             Button {
-                manager.bootVphone(in: vphoneCliPath)
+                if manager.vphoneDetected {
+                    showShutdownConfirm = true
+                } else {
+                    manager.bootVphone(in: vphoneCliPath)
+                }
             } label: {
-                Label("Boot", systemImage: "power")
+                Label(manager.vphoneDetected ? "Stop" : "Boot",
+                      systemImage: manager.vphoneDetected ? "stop.fill" : "power")
             }
             .buttonStyle(.borderedProminent)
-            .disabled(manager.vphoneDetected || !pathValid(vphoneCliPath))
-            .help(bootHelpText)
-
-            Button {
-                showShutdownConfirm = true
-            } label: {
-                Label("Stop", systemImage: "stop.fill")
-            }
-            .buttonStyle(.bordered)
-            .tint(.red)
-            .disabled(!manager.vphoneDetected)
-            .help("Shut down vphone")
+            .tint(manager.vphoneDetected ? .red : Color.accentColor)
+            .disabled(!manager.vphoneDetected && !pathValid(vphoneCliPath))
+            .help(manager.vphoneDetected ? "Shut down vphone" : bootHelpText)
             .confirmationDialog("Shut down vphone?", isPresented: $showShutdownConfirm) {
                 Button("Shut Down", role: .destructive) { manager.shutdownVphone() }
                 Button("Cancel",    role: .cancel) {}
@@ -194,7 +196,7 @@ struct ContentView: View {
                 logAutoScroll = true  // #18 — launching Discord means you want to watch it boot
                 manager.launchDiscord()
             } label: {
-                Label { Text("Discord") } icon: { Image("Discord") }
+                Label { Text("Launch Discord") } icon: { Image("Discord") }
             }
             .buttonStyle(.bordered)
             .disabled(!manager.vphoneDetected)
@@ -222,7 +224,7 @@ struct ContentView: View {
                     manager.buildUnbound(in: unboundPath)
                 }
             } label: {
-                Label(manager.buildPhase.isRunning ? "Cancel" : "Build",
+                Label(manager.buildPhase.isRunning ? "Cancel" : "Build Tweak",
                       systemImage: manager.buildPhase.isRunning ? "xmark" : "hammer.fill")
             }
             .buttonStyle(.bordered)
@@ -235,12 +237,12 @@ struct ContentView: View {
             Button {
                 openSettings()
             } label: {
-                Image(systemName: "gearshape")
+                Label("Settings", systemImage: "gearshape")
             }
             .buttonStyle(.bordered)
             .help("Settings")
         }
-        .controlSize(.small)
+        .controlSize(.regular)
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
     }
@@ -976,10 +978,21 @@ struct ContentView: View {
         )
     }
 
+    // Shortened from "Attached · vphone running" etc. — the dot already carries the
+    // running/not-running signal, and the fuller phrasing was pushed into a tooltip
+    // instead of staying inline, now that the status strip's buttons take up more
+    // width (regular control size, "Settings" gained a text label) and were truncating
+    // this with an ellipsis.
     private var statusText: String {
-        if manager.isAttached     { return "Attached · vphone running" }
-        if manager.vphoneDetected { return "vphone running" }
-        return "vphone not running"
+        if manager.isAttached     { return "Attached" }
+        if manager.vphoneDetected { return "Running" }
+        return "Not Running"
+    }
+
+    private var statusHelpText: String {
+        if manager.isAttached     { return "Attached to the vphone window" }
+        if manager.vphoneDetected { return "vphone is running but not attached" }
+        return "vphone is not running"
     }
 }
 
