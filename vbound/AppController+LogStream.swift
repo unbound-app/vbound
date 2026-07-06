@@ -22,6 +22,7 @@ extension AppController {
     // history you were just looking at; only a fresh, user-initiated Stream click does.
     private func beginLogStreamTask(isReconnect: Bool = false) {
         isStreaming = true
+        isStreamConnecting = true  // cleared once the UDID resolves (or fails) below
         logStreamAutoReconnect = true  // cleared by stopLogStream() for deliberate stops
 
         logStreamTask = Task { [weak self] in
@@ -32,11 +33,13 @@ extension AppController {
                 await MainActor.run {  // #10
                     self.logLines = diag
                     self.isStreaming = false
+                    self.isStreamConnecting = false
                 }
                 return
             }
 
             await MainActor.run {  // #10
+                self.isStreamConnecting = false
                 // Since history now survives reconnects, a flapping connection would
                 // otherwise show the same ">> streaming from" banner repeating for no
                 // apparent reason — tag it explicitly so a flaky session is obvious.
@@ -68,6 +71,7 @@ extension AppController {
         logStreamProcess?.terminate()
         logStreamProcess = nil
         isStreaming = false
+        isStreamConnecting = false
     }
 
     // MARK: - Private helpers

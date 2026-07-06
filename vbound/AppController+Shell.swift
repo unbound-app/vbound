@@ -3,7 +3,10 @@ import AppKit
 extension AppController {
 
     func connectShell() {
-        guard !isShellConnected else { return }
+        // Also guards against double-invocation while already mid-handshake — without
+        // isShellConnecting here, a second click before isShellConnected flips true would
+        // spawn a second concurrent ssh process on top of the first.
+        guard !isShellConnected, !isShellConnecting else { return }
         shellBuffer.reset()
         shellLines = shellBuffer.lines
         beginShellConnection()
@@ -14,6 +17,7 @@ extension AppController {
     // looking at; only a fresh, user-initiated Connect click does.
     private func beginShellConnection() {
         shellAutoReconnect = true  // #6: cleared by disconnectShell() for deliberate disconnects
+        isShellConnecting  = true  // cleared once the ssh process actually launches (or fails) below
 
         Task { [weak self] in
             guard let self else { return }
@@ -57,12 +61,16 @@ extension AppController {
                 }
             }
 
-            do { try p.run() } catch { return }
+            do { try p.run() } catch {
+                await MainActor.run { self.isShellConnecting = false }
+                return
+            }
 
             DispatchQueue.main.async {
                 self.shellProcess     = p
                 self.shellInputHandle = inPipe.fileHandleForWriting
                 self.isShellConnected = true
+                self.isShellConnecting = false
             }
 
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
@@ -100,6 +108,7 @@ extension AppController {
 
     func disconnectShell() {
         shellAutoReconnect = false  // prevent reconnect on deliberate disconnect (#6)
+        isShellConnecting  = false
         shellProcess?.terminate()
         shellProcess     = nil
         shellInputHandle = nil

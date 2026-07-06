@@ -14,8 +14,10 @@ final class AppController: @unchecked Sendable {
     var buildProgress: Double = 0
     var logLines:        [LogEntry] = []
     var isStreaming      = false
+    var isStreamConnecting = false
     var shellLines:      [ShellLine] = []
     var isShellConnected = false
+    var isShellConnecting = false
     var bootedVphone     = false
     var vphoneUDID:      String? = nil
 
@@ -48,6 +50,7 @@ final class AppController: @unchecked Sendable {
 
     private var pollTimer:       Timer?
     private var windowObservers: [NSObjectProtocol] = []
+    private var slowPollTickCounter = 0
 
     // MARK: - Lifecycle
 
@@ -59,11 +62,30 @@ final class AppController: @unchecked Sendable {
         guard pollTimer == nil else { return }
         AppController.current = self
         let t = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.checkAndAttach() }
+            Task { @MainActor [weak self] in self?.tick() }
         }
         RunLoop.main.add(t, forMode: .common)
         pollTimer = t
         setupWindowObservers()
+    }
+
+    // The underlying CGWindowList enumeration in checkAndAttach() — not the timer
+    // itself — is the real cost of polling every 100ms for the app's whole lifetime.
+    // That cadence only actually matters while the panel is following vphone's window
+    // live (autoAttachEnabled + already attached, so a drag needs to look smooth);
+    // otherwise (not attached yet, or auto-attach is off so nothing ever repositions)
+    // a few hundred ms of extra detection latency is imperceptible, so most ticks are
+    // skipped — roughly a 5x cut to the syscall rate while idle.
+    private func tick() {
+        guard isAttached && autoAttachEnabled else {
+            slowPollTickCounter += 1
+            guard slowPollTickCounter >= 5 else { return }
+            slowPollTickCounter = 0
+            checkAndAttach()
+            return
+        }
+        slowPollTickCounter = 0
+        checkAndAttach()
     }
 
     func stop() {

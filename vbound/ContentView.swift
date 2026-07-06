@@ -165,7 +165,7 @@ struct ContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(manager.vphoneDetected || !pathValid(vphoneCliPath))
-            .help("Boot vphone")
+            .help(bootHelpText)
 
             Button {
                 showShutdownConfirm = true
@@ -214,7 +214,7 @@ struct ContentView: View {
             .buttonStyle(.bordered)
             .tint(manager.buildPhase.isRunning ? .red : Color.accentColor)
             .disabled(!manager.buildPhase.isRunning && !pathValid(unboundPath))
-            .help(manager.buildPhase.isRunning ? "Cancel build" : "Build & Install")
+            .help(buildHelpText)
 
             Divider().frame(height: 16)
 
@@ -312,14 +312,18 @@ struct ContentView: View {
             HStack(spacing: 10) {
                 if logsMerged {
                     tabButton(.unbound, icon: Self.mergedIconKey, label: "Logs", unread: allUnread)
+                        .keyboardShortcut("1", modifiers: .command)
                         .transition(.opacity)
                 } else {
                     tabButton(.unbound,     icon: "Unbound",      label: "Unbound",      unread: unboundUnread)
+                        .keyboardShortcut("1", modifiers: .command)
                         .transition(.opacity)
                     tabButton(.reactNative, icon: "React Native", label: "React Native", unread: reactNativeUnread)
+                        .keyboardShortcut("2", modifiers: .command)
                         .transition(.opacity)
                 }
                 tabButton(.shell, icon: "terminal", label: "Shell", unread: .none)
+                    .keyboardShortcut("3", modifiers: .command)
             }
             .animation(.easeInOut(duration: 0.25), value: logsMerged)
             .padding(.horizontal, 16)
@@ -356,6 +360,13 @@ struct ContentView: View {
                     .focused($logSearchFocused)
                     .onSubmit { jumpToNextMatch() }
                     .onKeyPress { press in
+                        // Escape mirrors the standard Safari/Xcode find-bar convention:
+                        // clear the query first, then (now that there's nothing left to
+                        // clear) drop focus out of the field on a second press.
+                        if press.key == .escape {
+                            if !logSearch.isEmpty { logSearch = "" } else { logSearchFocused = false }
+                            return .handled
+                        }
                         // ⌘G / ⇧⌘G jump between search matches while the filter field
                         // has focus — matches are already highlighted, but there was no
                         // way to step between them without scrolling by hand.
@@ -451,10 +462,18 @@ struct ContentView: View {
             Divider().frame(height: 16)
 
             HStack(spacing: 6) {
-                Circle()
-                    .fill(manager.isStreaming ? Color.green : Color.secondary.opacity(0.35))
-                    .frame(width: 8, height: 8)
-                    .animation(.easeInOut(duration: 0.25), value: manager.isStreaming)
+                // Resolving the vphone UDID (before any data has actually arrived) gets a
+                // spinner instead of a solid dot — isStreaming flips true immediately on
+                // click so the button already reads "Stop", but without this the dot would
+                // claim "live" for the second or so it takes just to find the device.
+                if manager.isStreamConnecting {
+                    ProgressView().controlSize(.mini).frame(width: 8, height: 8)
+                } else {
+                    Circle()
+                        .fill(manager.isStreaming ? Color.green : Color.secondary.opacity(0.35))
+                        .frame(width: 8, height: 8)
+                        .animation(.easeInOut(duration: 0.25), value: manager.isStreaming)
+                }
                 Button(manager.isStreaming ? "Stop" : "Stream") {
                     if manager.isStreaming {
                         manager.stopLogStream()
@@ -466,7 +485,9 @@ struct ContentView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .tint(manager.isStreaming ? .red : Color.accentColor)
-                .help(manager.isStreaming ? "Stop live log stream" : "Start live log stream")
+                .help(manager.isStreamConnecting ? "Resolving vphone device…"
+                      : manager.isStreaming      ? "Stop live log stream"
+                                                  : "Start live log stream")
             }
         }
         .padding(.horizontal, 16)
@@ -687,18 +708,29 @@ struct ContentView: View {
             Divider().frame(height: 16)
 
             HStack(spacing: 6) {
-                Circle()
-                    .fill(manager.isShellConnected ? Color.green : Color.secondary.opacity(0.35))
-                    .frame(width: 8, height: 8)
-                    .animation(.easeInOut(duration: 0.25), value: manager.isShellConnected)
-                Button(manager.isShellConnected ? "Disconnect" : "Connect") {
+                // Port-forwarding + the SSH handshake take a real second or two with no
+                // feedback otherwise — a spinner here avoids the "did my click register?"
+                // moment (and, unlike the log stream's Stop, there's no reliable way to
+                // cancel mid-handshake, so the button is disabled rather than relabeled).
+                if manager.isShellConnecting {
+                    ProgressView().controlSize(.mini).frame(width: 8, height: 8)
+                } else {
+                    Circle()
+                        .fill(manager.isShellConnected ? Color.green : Color.secondary.opacity(0.35))
+                        .frame(width: 8, height: 8)
+                        .animation(.easeInOut(duration: 0.25), value: manager.isShellConnected)
+                }
+                Button(manager.isShellConnecting ? "Connecting…" : (manager.isShellConnected ? "Disconnect" : "Connect")) {
                     if manager.isShellConnected { manager.disconnectShell() }
                     else                        { manager.connectShell() }
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .tint(manager.isShellConnected ? .red : Color.accentColor)
-                .help(manager.isShellConnected ? "Disconnect SSH session" : "Connect SSH session")
+                .disabled(manager.isShellConnecting)
+                .help(manager.isShellConnecting ? "Connecting…"
+                      : manager.isShellConnected ? "Disconnect SSH session"
+                                                  : "Connect SSH session")
             }
             .fixedSize()
             .layoutPriority(2)
@@ -808,6 +840,20 @@ struct ContentView: View {
 
     private func pathValid(_ path: String) -> Bool {  // #12
         AppController.pathValid(path)
+    }
+
+    // A disabled button with a static tooltip gives no clue *why* — surface the actual
+    // reason (bad path vs. already busy) instead of making the user dig into Settings.
+    private var bootHelpText: String {
+        if manager.vphoneDetected      { return "vphone is already running" }
+        if !pathValid(vphoneCliPath)   { return "vphone-cli path is invalid — check Settings" }
+        return "Boot vphone"
+    }
+
+    private var buildHelpText: String {
+        if manager.buildPhase.isRunning { return "Cancel build" }
+        if !pathValid(unboundPath)      { return "Unbound tweak path is invalid — check Settings" }
+        return "Build & Install"
     }
 
     private func styledShellText() -> Text {
