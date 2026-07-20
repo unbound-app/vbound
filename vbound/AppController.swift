@@ -151,9 +151,13 @@ final class AppController: @unchecked Sendable {
             guard isAttached else { return }
             isAttached = false
             guard autoAttachEnabled else { return }
+            // Anything short of a genuine Dock miniaturize (app quit, Stage Manager
+            // sweeping the phone window off-screen, a Spaces switch, ...) should still
+            // pull vbound out of view the same way vphone just did, instead of leaving
+            // it glued in place at `.floating` level with nothing behind it.
             if let app, isVphoneMinimized(forPID: app.processIdentifier) {
                 ourWindow?.miniaturize(nil)
-            } else if app == nil {
+            } else {
                 ourWindow?.orderOut(nil)
             }
             return
@@ -200,13 +204,24 @@ final class AppController: @unchecked Sendable {
         return nil
     }
 
+    // vphone-cli's process also owns "Files" and "Keychain" browser windows, and their
+    // window titles are just that — "Files" / "Keychain" — not "vphone" (only their
+    // subtitle says "vphone", which CGWindowList doesn't expose). The actual phone
+    // display window is the only one titled "VPHONE [loading/connected/disconnected]",
+    // so matching on that prefix is what keeps vbound from snapping to those other
+    // windows instead of the phone.
+    private func isPhoneWindowTitle(_ title: String?) -> Bool {
+        (title ?? "").lowercased().hasPrefix("vphone [")
+    }
+
     private func isVphoneMinimized(forPID pid: pid_t) -> Bool {
         let opts = CGWindowListOption.excludeDesktopElements
         guard let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]]
         else { return false }
         for info in list {
             guard (info[kCGWindowOwnerPID as String] as? Int32) == pid,
-                  (info[kCGWindowLayer as String] as? Int ?? 1) == 0 else { continue }
+                  (info[kCGWindowLayer as String] as? Int ?? 1) == 0,
+                  isPhoneWindowTitle(info[kCGWindowName as String] as? String) else { continue }
             if info[kCGWindowIsOnscreen as String] as? Bool == false { return true }
         }
         return false
@@ -219,6 +234,7 @@ final class AppController: @unchecked Sendable {
         for info in list {
             guard (info[kCGWindowOwnerPID as String] as? Int32) == pid,
                   (info[kCGWindowLayer as String] as? Int ?? 1) == 0,
+                  isPhoneWindowTitle(info[kCGWindowName as String] as? String),
                   let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
                   let rect = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
             else { continue }
@@ -233,7 +249,7 @@ final class AppController: @unchecked Sendable {
         else { return nil }
         for info in list {
             guard (info[kCGWindowLayer as String] as? Int ?? 1) == 0,
-                  (info[kCGWindowName as String] as? String ?? "").lowercased().contains("vphone"),
+                  isPhoneWindowTitle(info[kCGWindowName as String] as? String),
                   let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
                   let rect = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
             else { continue }

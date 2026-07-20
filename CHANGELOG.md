@@ -9,6 +9,20 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-07-20
+
+### Fixed
+
+- vbound would sometimes attach and snap to vphone-cli's "Files" or
+  "Keychain" browser windows instead of the actual phone display window,
+  since both are owned by the same process and matching only checked the
+  process/title loosely. Attachment now targets the phone window
+  specifically (identified by its "VPHONE [...]" title).
+- The panel would stay glued on top of the screen at its floating window
+  level if vphone was dismissed some way other than quitting or a literal
+  Dock miniaturize (e.g. swept away by Stage Manager). It now hides itself
+  whenever the phone window disappears, matching vphone's own dismissal.
+
 ## [0.11.0] - 2026-07-06
 
 ### Added
