@@ -11,6 +11,7 @@ struct ContentView: View {
     @EnvironmentObject private var appUpdater: AppUpdater
     @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
     @AppStorage("unboundPath")   private var unboundPath   = NSHomeDirectory() + "/Developer/loader-ios"
+    @AppStorage("unboundPluginsPath") private var unboundPluginsPath = NSHomeDirectory() + "/Developer/unbound-plugins"
     @AppStorage("skippedUpdateVersion") private var skippedUpdateVersion = ""
     @State private var showUpdateSheet = false
 
@@ -196,7 +197,7 @@ struct ContentView: View {
                 logAutoScroll = true  // #18 — launching Discord means you want to watch it boot
                 manager.launchDiscord()
             } label: {
-                Label { Text("Launch Discord") } icon: { Image("Discord") }
+                Label { Text("Discord") } icon: { Image("Discord") }
             }
             .buttonStyle(.bordered)
             .disabled(!manager.vphoneDetected || manager.isLaunchingDiscord)
@@ -224,13 +225,23 @@ struct ContentView: View {
                     manager.buildUnbound(in: unboundPath)
                 }
             } label: {
-                Label(manager.buildPhase.isRunning ? "Cancel Build" : "Build Tweak",
+                Label(manager.buildPhase.isRunning ? "Cancel" : "Tweak",
                       systemImage: manager.buildPhase.isRunning ? "xmark" : "hammer.fill")
             }
             .buttonStyle(.bordered)
             .tint(manager.buildPhase.isRunning ? .red : Color.accentColor)
             .disabled(!manager.buildPhase.isRunning && !pathValid(unboundPath))
             .help(buildHelpText)
+
+            Button {
+                logAutoScroll = true
+                manager.buildPlugins(in: unboundPluginsPath)
+            } label: {
+                Label("Plugins", systemImage: "puzzlepiece.extension.fill")
+            }
+            .buttonStyle(.bordered)
+            .disabled(manager.buildPhase.isRunning || !pathValid(unboundPluginsPath))
+            .help(pluginsHelpText)
 
             Divider().frame(height: 16)
 
@@ -262,6 +273,8 @@ struct ContentView: View {
     private var progressSection: some View {
         switch manager.buildPhase {
         case .succeeded:
+            resultRow(icon: "checkmark.circle.fill", tint: .green, message: manager.buildPhase.label, showDismiss: false)
+        case .pluginsDeployed:
             resultRow(icon: "checkmark.circle.fill", tint: .green, message: manager.buildPhase.label, showDismiss: false)
         case .cancelled:
             resultRow(icon: "xmark.circle.fill", tint: .secondary, message: manager.buildPhase.label, showDismiss: false)
@@ -919,9 +932,15 @@ struct ContentView: View {
     }
 
     private var buildHelpText: String {
-        if manager.buildPhase.isRunning { return "Cancel build" }
+        if manager.buildPhase.isRunning { return "Cancel current task" }
         if !pathValid(unboundPath)      { return "Unbound tweak path is invalid — check Settings" }
-        return "Build Tweak"
+        return "Build and install the Unbound tweak"
+    }
+
+    private var pluginsHelpText: String {
+        if manager.buildPhase.isRunning { return "A task is already running" }
+        if !pathValid(unboundPluginsPath) { return "Plugin workspace path is invalid — check Settings" }
+        return "Build, deploy, and reload plugins"
     }
 
     private func styledShellText() -> Text {

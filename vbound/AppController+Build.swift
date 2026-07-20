@@ -2,6 +2,65 @@ import AppKit
 
 extension AppController {
 
+    func buildPlugins(in directory: String) {
+        buildTask = Task { [weak self] in
+            guard let self else { return }
+            if !isStreaming { startLogStream() }
+
+            let dirPath = (directory as NSString).expandingTildeInPath
+            buildLog = ""; buildProgress = 0; buildPhase = .buildingPlugins
+            let built = await run(args: [
+                "/bin/zsh", "-l", "-c",
+                "cd \(Self.shellQuoted(dirPath)) && bunx ubd build"
+            ], onLaunch: { [weak self] p in self?.buildProcess = p }) { [weak self] line in
+                self?.buildLog = line
+            }
+            guard built else { return fail("Plugin build failed") }
+            guard !Task.isCancelled else { return }
+
+            let pluginDists = findPluginDists(in: dirPath)
+            guard !pluginDists.isEmpty else { return fail("No plugin dist folders found") }
+
+            await ensurePortForward()
+            guard !Task.isCancelled else { return }
+
+            buildPhase = .deployingPlugins
+            for (name, distPath) in pluginDists {
+                let stagingPath = "/tmp/vbound-plugin-\(UUID().uuidString)"
+                buildLog = "Deploying \(name)…"
+                let uploaded = await run(args: [
+                    "sshpass", "-p", sshPassword, "scp",
+                    "-r",
+                    "-P", "2222",
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "UserKnownHostsFile=/dev/null",
+                    "-o", "ControlMaster=auto",
+                    "-o", "ControlPath=\(AppController.sshControlPath)",
+                    "-o", "ControlPersist=60",
+                    distPath, "mobile@127.0.0.1:\(stagingPath)"
+                ], onLaunch: { [weak self] p in self?.buildProcess = p })
+                guard uploaded else { return fail("Plugin upload failed") }
+                guard !Task.isCancelled else { return }
+
+                let deployed = await run(
+                    ssh: pluginDeploymentCommand(name: name, stagingPath: stagingPath),
+                    onLaunch: { [weak self] p in self?.buildProcess = p }
+                )
+                guard deployed else { return fail("Plugin deployment failed") }
+                guard !Task.isCancelled else { return }
+            }
+
+            buildPhase = .restarting
+            let restarted = await restartDiscord()
+            guard !Task.isCancelled else { return }
+            guard restarted else { return fail("Discord restart failed") }
+
+            buildPhase = .pluginsDeployed; buildLog = ""; buildProgress = 0
+            NSSound(named: "Glass")?.play()
+            scheduleReset()
+        }
+    }
+
     func buildUnbound(in directory: String) {
         buildTask = Task { [weak self] in
             guard let self else { return }
@@ -112,7 +171,7 @@ extension AppController {
         Task {
             try? await Task.sleep(for: .seconds(4))
             switch buildPhase {
-            case .succeeded, .cancelled: buildPhase = .idle; buildLog = ""
+            case .succeeded, .pluginsDeployed, .cancelled: buildPhase = .idle; buildLog = ""
             default: break
             }
         }
@@ -120,7 +179,7 @@ extension AppController {
 
     func dismissBuildResult() {
         switch buildPhase {
-        case .succeeded, .failed, .cancelled: buildPhase = .idle; buildLog = ""
+        case .succeeded, .pluginsDeployed, .failed, .cancelled: buildPhase = .idle; buildLog = ""
         default: break
         }
     }
@@ -175,5 +234,48 @@ extension AppController {
             .filter { $0.hasSuffix(".deb") }
             .map    { (packagesDir as NSString).appendingPathComponent($0) }
             .max    { modificationDate($0) < modificationDate($1) }
+    }
+
+    private func findPluginDists(in directory: String) -> [(name: String, path: String)] {
+        let pluginsDirectory = URL(fileURLWithPath: directory).appending(path: "plugins")
+        guard let pluginDirectories = try? FileManager.default.contentsOfDirectory(
+            at: pluginsDirectory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        return pluginDirectories.compactMap { pluginDirectory in
+            guard (try? pluginDirectory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
+                return nil
+            }
+            let distDirectory = pluginDirectory.appending(path: "dist")
+            guard (try? distDirectory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
+                return nil
+            }
+            return (pluginDirectory.lastPathComponent, distDirectory.path)
+        }
+        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private func pluginDeploymentCommand(name: String, stagingPath: String) -> String {
+        let script = """
+        container="$(for metadata in /private/var/mobile/Containers/Data/Application/*/.com.apple.mobile_container_manager.metadata.plist; do
+            [ -f "$metadata" ] || continue
+            if grep -q 'com.hammerandchisel.discord' "$metadata"; then
+                dirname "$metadata"
+                break
+            fi
+        done)"
+        [ -n "$container" ] || exit 1
+        plugins="$container/Documents/Unbound/Plugins"
+        mkdir -p "$plugins"
+        rm -rf "$plugins"/\(Self.shellQuoted(name))
+        mv \(Self.shellQuoted(stagingPath)) "$plugins"/\(Self.shellQuoted(name))
+        """
+        return "echo \(Self.shellQuoted(sshPassword)) | sudo -S /var/jb/usr/bin/sh -c \(Self.shellQuoted(script))"
+    }
+
+    private nonisolated static func shellQuoted(_ value: String) -> String {
+        "'\(value.replacing("'", with: "'\\\"'\\\"'"))'"
     }
 }

@@ -7,7 +7,7 @@ struct SettingsView: View {
     // updates/buffers) — deliberately excludes main-window view state like log level
     // filters or merge mode, which a user wouldn't associate with a Settings reset.
     private static let resettableKeys = [
-        "vphoneCliPath", "unboundPath", "sshPassword",
+        "vphoneCliPath", "unboundPath", "unboundPluginsPath", "sshPassword",
         "autoAttachEnabled", "autoStartLogStreamEnabled", "autoConnectShellEnabled",
         "autoCheckForUpdates", "updateCheckIntervalHours",
         "logBufferSize", "shellBufferSize",
@@ -66,6 +66,7 @@ struct SettingsView: View {
 private struct GeneralSettingsView: View {
     @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
     @AppStorage("unboundPath")   private var unboundPath   = NSHomeDirectory() + "/Developer/loader-ios"
+    @AppStorage("unboundPluginsPath") private var unboundPluginsPath = NSHomeDirectory() + "/Developer/unbound-plugins"
     @AppStorage("sshPassword") private var sshPassword = ""
     @State private var isPasswordVisible = false
 
@@ -74,6 +75,7 @@ private struct GeneralSettingsView: View {
             Section("Paths") {
                 FolderPicker(label: "vphone-cli", path: $vphoneCliPath)
                 FolderPicker(label: "Unbound Tweak", path: $unboundPath)
+                FolderPicker(label: "Plugin Workspace", path: $unboundPluginsPath)
             }
 
             Section("Connection") {

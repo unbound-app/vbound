@@ -3,7 +3,7 @@
 > [!NOTE]
 > This is a developer companion tool. It requires [vphone-cli](https://github.com/nickcoutsos/vphone), [loader-ios](https://github.com/unbound-app/loader-ios), and the CLI dependencies listed below to be useful.
 
-macOS floating panel that attaches to the vphone window and streamlines Unbound development: boot the virtual device, build and deploy the tweak over SSH, and stream live device logs.
+macOS floating panel that attaches to the vphone window and streamlines Unbound development: boot the virtual device, deploy the tweak and plugins over SSH, and stream live device logs.
 
 ![vbound](https://adriancastro.dev/96557kk9tr3z.png)
 
@@ -30,8 +30,9 @@ vbound automatically detects the vphone window and attaches its panel to the rig
 | --- | --- |
 | **Boot vphone** | Runs `make boot` in the vphone-cli folder |
 | **Shut Down** | Gracefully shuts down the virtual device via `pymobiledevice3 diagnostics shutdown` |
-| **Launch Discord** | Kills and relaunches Discord on the virtual device |
-| **Build & Install Unbound** | Builds the tweak (`gmake package`) and deploys it via SSH on port 2222 |
+| **Discord** | Kills and relaunches Discord on the virtual device |
+| **Tweak** | Builds the tweak (`gmake package`) and deploys it via SSH on port 2222 |
+| **Plugins** | Builds every plugin (`bunx ubd build`), replaces each deployed plugin with its `dist/` contents, then relaunches Discord |
 | **Stream** | Live-tails device logs filtered to `app.unbound` and `com.facebook.react.log` subsystems, with an optional merged view |
 | **Shell** | Opens an SSH terminal session to the device (`mobile@127.0.0.1:2222`) |
 
