@@ -47,8 +47,6 @@ vbound automatically detects the vphone window and attaches its panel to the rig
 
 Port forwarding (SSH on 2222) is handled automatically by `pymobiledevice3 usbmux forward` whenever an SSH or build action is triggered.
 
-When vphone is mounted, **Addons** deploys by copying straight into Discord's container on `~/vphone` instead of `scp`-ing to a staging path and moving it into place over SSH.
-
 ## Contributors
 
 [![Contributors](https://contrib.rocks/image?repo=unbound-app/vbound)](https://github.com/unbound-app/vbound/graphs/contributors)

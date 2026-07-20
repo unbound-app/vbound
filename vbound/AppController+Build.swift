@@ -25,57 +25,30 @@ extension AppController {
             guard !Task.isCancelled else { return }
 
             buildPhase = .deployingPlugins
-            // With vphone mounted in Finder, /var/mobile is a local path as far as
-            // FileManager is concerned — a plain copy into Discord's own container
-            // replaces the scp-to-staging + sudo-remote-move round trip entirely, and
-            // the container search needs no elevation (verified against a live device:
-            // `mobile` already owns every app's container).
-            let mountedContainer = isMounted ? await Task.detached {
-                AppController.findDiscordContainer(under: AppController.mountPath)
-            }.value : nil
-            if let containerDir = mountedContainer {
-                let pluginsDir = URL(fileURLWithPath: containerDir)
-                    .appending(path: "Documents/Unbound/Plugins")
-                for (name, distPath) in pluginDists {
-                    buildLog = "Deploying addon \(name)…"
-                    do {
-                        try FileManager.default.createDirectory(at: pluginsDir, withIntermediateDirectories: true)
-                        let dest = pluginsDir.appending(path: name)
-                        if FileManager.default.fileExists(atPath: dest.path) {
-                            try FileManager.default.removeItem(at: dest)
-                        }
-                        try FileManager.default.copyItem(atPath: distPath, toPath: dest.path)
-                    } catch {
-                        return fail("Addon deployment failed: \(error.localizedDescription)")
-                    }
-                    guard !Task.isCancelled else { return }
-                }
-            } else {
-                for (name, distPath) in pluginDists {
-                    let stagingPath = "/tmp/vbound-plugin-\(UUID().uuidString)"
-                    buildLog = "Deploying addon \(name)…"
-                    let uploaded = await run(args: [
-                        "sshpass", "-p", sshPassword, "scp",
-                        "-r",
-                        "-P", "2222",
-                        "-o", "StrictHostKeyChecking=no",
-                        "-o", "UserKnownHostsFile=/dev/null",
-                        "-o", "PubkeyAuthentication=no",
-                        "-o", "ControlMaster=auto",
-                        "-o", "ControlPath=\(AppController.sshControlPath)",
-                        "-o", "ControlPersist=60",
-                        distPath, "mobile@127.0.0.1:\(stagingPath)"
-                    ], onLaunch: { [weak self] p in self?.buildProcess = p })
-                    guard uploaded else { return fail("Addon upload failed") }
-                    guard !Task.isCancelled else { return }
+            for (name, distPath) in pluginDists {
+                let stagingPath = "/tmp/vbound-plugin-\(UUID().uuidString)"
+                buildLog = "Deploying addon \(name)…"
+                let uploaded = await run(args: [
+                    "sshpass", "-p", sshPassword, "scp",
+                    "-r",
+                    "-P", "2222",
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "UserKnownHostsFile=/dev/null",
+                    "-o", "PubkeyAuthentication=no",
+                    "-o", "ControlMaster=auto",
+                    "-o", "ControlPath=\(AppController.sshControlPath)",
+                    "-o", "ControlPersist=60",
+                    distPath, "mobile@127.0.0.1:\(stagingPath)"
+                ], onLaunch: { [weak self] p in self?.buildProcess = p })
+                guard uploaded else { return fail("Addon upload failed") }
+                guard !Task.isCancelled else { return }
 
-                    let deployed = await run(
-                        ssh: pluginDeploymentCommand(name: name, stagingPath: stagingPath),
-                        onLaunch: { [weak self] p in self?.buildProcess = p }
-                    )
-                    guard deployed else { return fail("Addon deployment failed") }
-                    guard !Task.isCancelled else { return }
-                }
+                let deployed = await run(
+                    ssh: pluginDeploymentCommand(name: name, stagingPath: stagingPath),
+                    onLaunch: { [weak self] p in self?.buildProcess = p }
+                )
+                guard deployed else { return fail("Addon deployment failed") }
+                guard !Task.isCancelled else { return }
             }
 
             buildPhase = .restarting
@@ -285,26 +258,6 @@ extension AppController {
             return (pluginDirectory.lastPathComponent, distDirectory.path)
         }
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    }
-
-    // Pure function of mountRoot with no actor-isolated state — nonisolated static so it
-    // can run on Task.detached's background executor, matching estimateBuildSteps above:
-    // this walks every installed app's container over the FUSE-mounted SSHFS connection,
-    // which is real network I/O and could otherwise hitch the window mid-deploy.
-    nonisolated static func findDiscordContainer(under mountRoot: String) -> String? {
-        let appsDir = (mountRoot as NSString).appendingPathComponent("Containers/Data/Application")
-        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: appsDir) else { return nil }
-        for entry in entries {
-            let containerDir = (appsDir as NSString).appendingPathComponent(entry)
-            let metadataPath = (containerDir as NSString)
-                .appendingPathComponent(".com.apple.mobile_container_manager.metadata.plist")
-            guard let data = FileManager.default.contents(atPath: metadataPath),
-                  let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-                  plist["MCMMetadataIdentifier"] as? String == "com.hammerandchisel.discord"
-            else { continue }
-            return containerDir
-        }
-        return nil
     }
 
     private func pluginDeploymentCommand(name: String, stagingPath: String) -> String {

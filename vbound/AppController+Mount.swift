@@ -94,6 +94,13 @@ extension AppController {
         Task { [weak self] in
             guard let self else { return }
             _ = await run(args: ["umount", AppController.mountPath])
+            // FUSE-T's NFS-loopback mounts can shrug off a plain umount and stay listed
+            // in `mount` — confirmed directly: umount / umount -f both reported success or
+            // "not mounted" while the entry stuck around, and only diskutil's forced
+            // unmount actually cleared it.
+            if await isPathMounted(AppController.mountPath) {
+                _ = await run(args: ["diskutil", "unmount", "force", AppController.mountPath])
+            }
             isMounted = await isPathMounted(AppController.mountPath)
         }
     }

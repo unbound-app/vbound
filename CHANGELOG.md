@@ -9,6 +9,25 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-07-20
+
+### Changed
+
+- Addon deployment is back to always using `scp` + SSH, regardless of whether vphone is
+  mounted. The mounted copy still moves the same bytes over the same SFTP transport, so
+  it wasn't a meaningful speedup — not worth coupling the automated deploy pipeline to
+  FUSE's reliability for a marginal (if any) gain. The Finder mount stays as a standalone
+  convenience for manually browsing/dragging files.
+
+### Fixed
+
+- Unmounting a genuinely-attached FUSE-T mount didn't reliably respond to plain `umount`
+  (confirmed directly: it can report success or "not mounted" while `mount` still lists
+  the entry). Unmount now falls back to `diskutil unmount force` when the mount is still
+  present afterward.
+- The Mount/Finder button showed the window's default keyboard-focus ring whenever
+  vbound became the key window, making the folder glyph hard to see.
+
 ## [0.13.1] - 2026-07-20
 
 ### Fixed

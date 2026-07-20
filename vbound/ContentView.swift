@@ -173,6 +173,7 @@ struct ContentView: View {
                     .foregroundStyle(manager.isMounted ? Color.green : Color.secondary)
             }
             .buttonStyle(.plain)
+            .focusable(false)  // otherwise the window's default focus ring lands here and swallows the glyph
             .disabled(manager.isMounting || (!manager.isMounted && !manager.sshfsAvailable))
             .help(mountHelpText)
             .contextMenu {
