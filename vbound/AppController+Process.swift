@@ -45,7 +45,7 @@ extension AppController {
     var enrichedEnvironment: [String: String] {
         var env  = ProcessInfo.processInfo.environment
         let home = NSHomeDirectory()
-        let extra = "/opt/homebrew/bin:/usr/local/bin:\(home)/.local/bin"
+        let extra = "/opt/homebrew/bin:/usr/local/bin:\(home)/.bun/bin:\(home)/.local/bin"
         env["PATH"] = "\(extra):\(env["PATH"] ?? "/usr/bin:/bin")"
         return env
     }
