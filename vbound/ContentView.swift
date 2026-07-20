@@ -218,29 +218,41 @@ struct ContentView: View {
             .animation(.easeInOut(duration: 0.2), value: manager.discordLaunchFailed)
 
             Button {
-                if manager.buildPhase.isRunning {
+                if manager.buildPhase.isRunning, manager.activeBuildTarget == .tweak {
                     manager.cancelBuild()
                 } else {
                     logAutoScroll = true  // #18 — same for a fresh build/install run
                     manager.buildUnbound(in: unboundPath)
                 }
             } label: {
-                Label(manager.buildPhase.isRunning ? "Cancel" : "Tweak",
-                      systemImage: manager.buildPhase.isRunning ? "xmark" : "hammer.fill")
+                let isTweakRunning = manager.buildPhase.isRunning && manager.activeBuildTarget == .tweak
+                Label(isTweakRunning ? "Cancel" : "Tweak",
+                      systemImage: isTweakRunning ? "xmark" : "hammer.fill")
             }
             .buttonStyle(.bordered)
-            .tint(manager.buildPhase.isRunning ? .red : Color.accentColor)
-            .disabled(!manager.buildPhase.isRunning && !pathValid(unboundPath))
+            .tint(manager.buildPhase.isRunning && manager.activeBuildTarget == .tweak ? .red : Color.accentColor)
+            .disabled(manager.buildPhase.isRunning
+                      ? manager.activeBuildTarget != .tweak
+                      : !pathValid(unboundPath))
             .help(buildHelpText)
 
             Button {
-                logAutoScroll = true
-                manager.buildPlugins(in: unboundPluginsPath)
+                if manager.buildPhase.isRunning, manager.activeBuildTarget == .plugins {
+                    manager.cancelBuild()
+                } else {
+                    logAutoScroll = true
+                    manager.buildPlugins(in: unboundPluginsPath)
+                }
             } label: {
-                Label("Addons", systemImage: "puzzlepiece.extension.fill")
+                let isAddonsRunning = manager.buildPhase.isRunning && manager.activeBuildTarget == .plugins
+                Label(isAddonsRunning ? "Cancel" : "Addons",
+                      systemImage: isAddonsRunning ? "xmark" : "puzzlepiece.extension.fill")
             }
             .buttonStyle(.bordered)
-            .disabled(manager.buildPhase.isRunning || !pathValid(unboundPluginsPath))
+            .tint(manager.buildPhase.isRunning && manager.activeBuildTarget == .plugins ? .red : Color.accentColor)
+            .disabled(manager.buildPhase.isRunning
+                      ? manager.activeBuildTarget != .plugins
+                      : !pathValid(unboundPluginsPath))
             .help(addonsHelpText)
 
             Divider().frame(height: 16)

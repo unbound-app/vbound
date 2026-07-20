@@ -8,7 +8,7 @@ extension AppController {
             if !isStreaming { startLogStream() }
 
             let dirPath = (directory as NSString).expandingTildeInPath
-            buildLog = ""; buildProgress = 0; buildPhase = .buildingPlugins
+            buildLog = ""; buildProgress = 0; buildPhase = .buildingPlugins; activeBuildTarget = .plugins
             let built = await run(args: [
                 "/bin/zsh", "-l", "-c",
                 "cd \(Self.shellQuoted(dirPath)) && bunx ubd build"
@@ -70,7 +70,7 @@ extension AppController {
             let dirPath = (directory as NSString).expandingTildeInPath
             let ncpu    = ProcessInfo.processInfo.processorCount
 
-            buildLog = ""; buildProgress = 0; buildPhase = .building
+            buildLog = ""; buildProgress = 0; buildPhase = .building; activeBuildTarget = .tweak
             // Off the main thread: this walks the entire source tree with
             // FileManager.enumerator, and buildTask inherits AppController's MainActor
             // context — called directly, this would run synchronously on the main thread
@@ -155,6 +155,7 @@ extension AppController {
         buildProcess?.terminate()
         buildProcess = nil
         buildPhase = .cancelled; buildLog = ""; buildProgress = 0
+        activeBuildTarget = nil
         scheduleReset()
     }
 
@@ -173,7 +174,7 @@ extension AppController {
         Task {
             try? await Task.sleep(for: .seconds(4))
             switch buildPhase {
-            case .succeeded, .pluginsDeployed, .cancelled: buildPhase = .idle; buildLog = ""
+            case .succeeded, .pluginsDeployed, .cancelled: buildPhase = .idle; buildLog = ""; activeBuildTarget = nil
             default: break
             }
         }
@@ -181,7 +182,7 @@ extension AppController {
 
     func dismissBuildResult() {
         switch buildPhase {
-        case .succeeded, .pluginsDeployed, .failed, .cancelled: buildPhase = .idle; buildLog = ""
+        case .succeeded, .pluginsDeployed, .failed, .cancelled: buildPhase = .idle; buildLog = ""; activeBuildTarget = nil
         default: break
         }
     }

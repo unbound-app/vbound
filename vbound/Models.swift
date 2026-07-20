@@ -171,6 +171,10 @@ final class ANSILineBuffer {
     }
 }
 
+enum BuildTarget: Equatable {
+    case tweak, plugins
+}
+
 enum BuildPhase: Equatable {
     case idle, building, buildingPlugins, uploading, installing, deployingPlugins, restarting
     case succeeded, pluginsDeployed

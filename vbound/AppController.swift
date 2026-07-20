@@ -12,6 +12,7 @@ final class AppController: @unchecked Sendable {
     var buildPhase: BuildPhase = .idle
     var buildLog:   String = ""
     var buildProgress: Double = 0
+    var activeBuildTarget: BuildTarget? = nil
     var logLines:        [LogEntry] = []
     var isStreaming      = false
     var isStreamConnecting = false

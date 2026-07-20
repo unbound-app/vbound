@@ -9,6 +9,16 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-07-20
+
+### Fixed
+
+- Starting an addon build turned the Tweak button into the Cancel button
+  instead of the Addons button that was actually clicked, since both build
+  pipelines shared one running-state flag. The Tweak and Addons buttons now
+  each track their own build target, so only the button that started a build
+  turns into its Cancel control.
+
 ## [0.12.0] - 2026-07-20
 
 ### Added
