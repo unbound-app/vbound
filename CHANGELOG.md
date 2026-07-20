@@ -9,6 +9,22 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-07-20
+
+### Fixed
+
+- The Finder-mount feature silently no-opped: `gromgit/fuse/sshfs-mac`, the more
+  commonly recommended sshfs package, is built against classic macFUSE/libfuse headers
+  and isn't actually compatible with FUSE-T — it exits successfully without ever
+  attaching the mount, leaving `~/vphone` empty and making Unmount look like it does
+  nothing (there was never anything mounted to unmount). vbound now looks specifically
+  for FUSE-T's own sshfs build at `/usr/local/bin/sshfs`
+  (`macos-fuse-t/homebrew-cask/fuse-t-sshfs`) and verifies against `mount` output
+  rather than trusting sshfs's exit code, so a broken mount can't be reported as
+  successful again.
+- The `~/vphone` mount point's custom icon is now the standard folder glyph with a
+  small phone badge, not a bare phone icon replacing the folder shape.
+
 ## [0.13.0] - 2026-07-20
 
 ### Added

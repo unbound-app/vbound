@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 extension AppController {
 
@@ -11,22 +12,52 @@ extension AppController {
         if !FileManager.default.fileExists(atPath: path) {
             try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
         }
-        if let icon = NSImage(systemSymbolName: "iphone", accessibilityDescription: nil) {
-            NSWorkspace.shared.setIcon(icon, forFile: path)
-        }
+        NSWorkspace.shared.setIcon(badgedFolderIcon, forFile: path)
         return path
     }()
 
-    // sshfs (from FUSE-T + gromgit/fuse/sshfs-mac) isn't guaranteed to be on PATH inside
-    // enrichedEnvironment the way brew's own bin dirs are, so this checks the same known
-    // Homebrew locations `makeExecutable` already probes for gmake (#15).
-    var sshfsAvailable: Bool {
-        ["/opt/homebrew/bin/sshfs", "/usr/local/bin/sshfs"]
-            .contains { FileManager.default.isExecutableFile(atPath: $0) }
+    // The standard folder icon with a small phone badge in the corner (mirrors how
+    // Finder badges iCloud/shared folders) — reads as "a folder" first, "vphone's"
+    // second, rather than replacing the folder glyph outright with a bare phone icon.
+    private nonisolated static var badgedFolderIcon: NSImage {
+        let size = NSSize(width: 256, height: 256)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSWorkspace.shared.icon(for: .folder).draw(in: NSRect(origin: .zero, size: size))
+        let badgeRect = NSRect(x: 132, y: 8, width: 116, height: 116)
+        NSColor.systemBlue.setFill()
+        NSBezierPath(ovalIn: badgeRect).fill()
+        let ring = NSBezierPath(ovalIn: badgeRect.insetBy(dx: 1, dy: 1))
+        NSColor.white.setStroke()
+        ring.lineWidth = 4
+        ring.stroke()
+        if let phone = NSImage(systemSymbolName: "iphone", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 60, weight: .medium)) {
+            phone.isTemplate = true
+            NSColor.white.set()
+            phone.draw(in: badgeRect.insetBy(dx: 28, dy: 20), from: .zero, operation: .sourceOver, fraction: 1.0)
+        }
+        image.unlockFocus()
+        return image
     }
 
+    // Only the FUSE-T-native build (macos-fuse-t/homebrew-cask/fuse-t-sshfs, installs to
+    // /usr/local/bin) is known to work here. gromgit/fuse/sshfs-mac — the more commonly
+    // recommended formula, installs to /opt/homebrew/bin — is built against classic
+    // macFUSE/libfuse headers: against FUSE-T it prints "library too old", exits 0, and
+    // never actually attaches the mount, leaving the folder silently empty. Deliberately
+    // not falling back to it: /opt/homebrew/bin sits earlier in enrichedEnvironment's
+    // PATH than /usr/local/bin, so a bare "sshfs" lookup would prefer the broken one even
+    // with the correct package also installed.
+    static var sshfsPath: String? {
+        let path = "/usr/local/bin/sshfs"
+        return FileManager.default.isExecutableFile(atPath: path) ? path : nil
+    }
+
+    var sshfsAvailable: Bool { AppController.sshfsPath != nil }
+
     func mountVphone() {
-        guard !isMounted, !isMounting, sshfsAvailable else { return }
+        guard !isMounted, !isMounting, let sshfsPath = AppController.sshfsPath else { return }
         isMounting = true
         Task { [weak self] in
             guard let self else { return }
@@ -37,9 +68,9 @@ extension AppController {
                 return
             }
             await ensurePortForward()
-            let mounted = await run(args: [
+            _ = await run(args: [
                 "sshpass", "-p", sshPassword,
-                "sshfs",
+                sshfsPath,
                 "-p", "2222",
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "UserKnownHostsFile=/dev/null",
@@ -52,7 +83,9 @@ extension AppController {
                 AppController.mountPath
             ])
             isMounting = false
-            isMounted  = mounted
+            // Ground-truth check rather than trusting sshfs's exit code — it can exit 0
+            // without ever actually attaching the mount (see the FUSE-T note above).
+            isMounted = await isPathMounted(AppController.mountPath)
         }
     }
 
@@ -60,9 +93,8 @@ extension AppController {
         guard isMounted else { return }
         Task { [weak self] in
             guard let self else { return }
-            if await run(args: ["umount", AppController.mountPath]) {
-                isMounted = false
-            }
+            _ = await run(args: ["umount", AppController.mountPath])
+            isMounted = await isPathMounted(AppController.mountPath)
         }
     }
 

@@ -14,7 +14,14 @@ macOS floating panel that attaches to the vphone window and streamlines Unbound 
 - [loader-ios](https://github.com/unbound-app/loader-ios) — Unbound tweak source
 - [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) — `pipx install pymobiledevice3`
 - [sshpass](https://formulae.brew.sh/formula/sshpass) — `brew install sshpass`
-- Optional, for mounting vphone in Finder: [FUSE-T](https://www.fuse-t.org) + sshfs — `brew install --cask fuse-t && brew install gromgit/fuse/sshfs-mac`
+- Optional, for mounting vphone in Finder: [FUSE-T](https://www.fuse-t.org) + FUSE-T's own sshfs build —
+  `brew install --cask fuse-t && brew tap macos-fuse-t/homebrew-cask && brew install --cask macos-fuse-t/homebrew-cask/fuse-t-sshfs`
+  (`brew trust macos-fuse-t/homebrew-cask` first if Homebrew refuses the tap).
+  Use this exact package, not the more commonly recommended `gromgit/fuse/sshfs-mac` —
+  that one is built against classic macFUSE/libfuse headers and silently fails to
+  actually attach the mount under FUSE-T (exits successfully, prints "library too old",
+  and the mount point just stays empty). vbound specifically looks for sshfs at
+  `/usr/local/bin/sshfs`, where the FUSE-T build installs.
 
 ## Building
 
