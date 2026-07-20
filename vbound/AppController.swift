@@ -24,6 +24,8 @@ final class AppController: @unchecked Sendable {
     var isLaunchingDiscord = false
     var bootedVphone     = false
     var vphoneUDID:      String? = nil
+    var isMounted        = false
+    var isMounting       = false
 
     // MARK: - Internal state (accessible from extension files)
 
@@ -65,6 +67,12 @@ final class AppController: @unchecked Sendable {
     func start() {
         guard pollTimer == nil else { return }
         AppController.current = self
+        // Reflects a mount left over from a previous session/crash so the Finder button
+        // shows the right state immediately instead of only after the next click.
+        Task { [weak self] in
+            guard let self else { return }
+            isMounted = await isPathMounted(AppController.mountPath)
+        }
         let t = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.tick() }
         }
@@ -99,6 +107,7 @@ final class AppController: @unchecked Sendable {
         windowObservers = []
         stopLogStream()
         disconnectShell()
+        unmountVphone()
     }
 
     // MARK: - Window observers

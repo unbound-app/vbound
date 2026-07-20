@@ -56,6 +56,13 @@ final class TerminatingWindowDelegate: NSObject, NSWindowDelegate {
                              "-o", "ControlPath=\(AppController.sshControlPath)",  // #8
                              "mobile@127.0.0.1"]
         try? mux.run()
+        // Same fire-and-forget reasoning as the mux exit above — waiting on umount here
+        // would block quit if the mount is wedged, and a leftover mount just fails the
+        // next mountVphone() call cleanly rather than causing any real harm.
+        let umount = Process()
+        umount.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        umount.arguments     = ["umount", AppController.mountPath]
+        try? umount.run()
         NSApp.terminate(nil)
     }
 

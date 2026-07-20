@@ -38,6 +38,7 @@ extension AppController {
             // retry-every-2-seconds loop against a device we just told it to shut down.
             stopLogStream()
             disconnectShell()
+            unmountVphone()
             // The port-forward daemon is a local TCP listener independent of whether the
             // device on the other end is actually still there — left running, the next
             // ensurePortForward() call would see the local port still answering and skip

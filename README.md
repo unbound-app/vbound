@@ -14,6 +14,7 @@ macOS floating panel that attaches to the vphone window and streamlines Unbound 
 - [loader-ios](https://github.com/unbound-app/loader-ios) — Unbound tweak source
 - [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) — `pipx install pymobiledevice3`
 - [sshpass](https://formulae.brew.sh/formula/sshpass) — `brew install sshpass`
+- Optional, for mounting vphone in Finder: [FUSE-T](https://www.fuse-t.org) + sshfs — `brew install --cask fuse-t && brew install gromgit/fuse/sshfs-mac`
 
 ## Building
 
@@ -35,8 +36,11 @@ vbound automatically detects the vphone window and attaches its panel to the rig
 | **Addons** | Builds every plugin (`bunx ubd build`), replaces each deployed plugin with its `dist/` contents, then relaunches Discord |
 | **Stream** | Live-tails device logs filtered to `app.unbound` and `com.facebook.react.log` subsystems, with an optional merged view |
 | **Shell** | Opens an SSH terminal session to the device (`mobile@127.0.0.1:2222`) |
+| **Mount (folder icon)** | Mounts vphone's filesystem at `~/vphone` over SSHFS; click again to open it in Finder, right-click to unmount |
 
 Port forwarding (SSH on 2222) is handled automatically by `pymobiledevice3 usbmux forward` whenever an SSH or build action is triggered.
+
+When vphone is mounted, **Addons** deploys by copying straight into Discord's container on `~/vphone` instead of `scp`-ing to a staging path and moving it into place over SSH.
 
 ## Contributors
 

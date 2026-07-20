@@ -9,6 +9,22 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-20
+
+### Added
+
+- vphone can now be mounted in Finder over SSHFS. A folder icon next to the
+  status indicator mounts it at `~/vphone` (requires
+  [FUSE-T](https://www.fuse-t.org) and `gromgit/fuse/sshfs-mac`, checked
+  automatically); click again to open it in Finder, right-click to unmount.
+  The mount is torn down automatically on shutdown and app quit.
+
+### Changed
+
+- When vphone is mounted, the Addons action deploys by copying straight into
+  Discord's container on the mounted volume instead of `scp`-ing to a staging
+  path and moving it into place over SSH.
+
 ## [0.12.1] - 2026-07-20
 
 ### Fixed

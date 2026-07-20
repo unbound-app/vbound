@@ -158,6 +158,29 @@ struct ContentView: View {
                     }
                 }
 
+            // Plain icon rather than a bordered button — the action row on the right is
+            // already at capacity for the fixed 600pt width, but this side has slack
+            // (that's what Spacer(minLength:) below is absorbing).
+            Button {
+                if manager.isMounted {
+                    manager.revealMountInFinder()
+                } else {
+                    manager.mountVphone()
+                }
+            } label: {
+                Image(systemName: manager.isMounted ? "folder.fill" : "folder")
+                    .font(.system(size: 12))
+                    .foregroundStyle(manager.isMounted ? Color.green : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(manager.isMounting || (!manager.isMounted && !manager.sshfsAvailable))
+            .help(mountHelpText)
+            .contextMenu {
+                if manager.isMounted {
+                    Button("Unmount") { manager.unmountVphone() }
+                }
+            }
+
             Spacer(minLength: 8)
 
             // One toggling button instead of two permanently-visible ones — Boot and Stop
@@ -953,6 +976,15 @@ struct ContentView: View {
         if manager.buildPhase.isRunning { return "A task is already running" }
         if !pathValid(unboundPluginsPath) { return "Addon workspace path is invalid — check Settings" }
         return "Build, deploy, and reload addons"
+    }
+
+    private var mountHelpText: String {
+        if manager.isMounted   { return "Open vphone in Finder (right-click to unmount)" }
+        if manager.isMounting  { return "Mounting…" }
+        if !manager.sshfsAvailable {
+            return "sshfs not found — install FUSE-T and sshfs-mac to mount vphone in Finder"
+        }
+        return "Mount vphone's filesystem in Finder"
     }
 
     private func styledShellText() -> Text {
