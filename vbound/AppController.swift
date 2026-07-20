@@ -204,12 +204,26 @@ final class AppController: @unchecked Sendable {
         return nil
     }
 
-    // vphone-cli's process also owns "Files" and "Keychain" browser windows, and their
-    // window titles are just that — "Files" / "Keychain" — not "vphone" (only their
-    // subtitle says "vphone", which CGWindowList doesn't expose). The actual phone
-    // display window is the only one titled "VPHONE [loading/connected/disconnected]",
-    // so matching on that prefix is what keeps vbound from snapping to those other
-    // windows instead of the phone.
+    // kCGWindowName (the window title) is redacted to nil by macOS unless vbound has
+    // Screen Recording permission granted — which it has no reason to ask for — so the
+    // *primary*, PID-based lookup below can't rely on titles to tell vphone-cli's
+    // "Files" (700x500) and "Keychain" (900x500) browser windows apart from the actual
+    // phone display. The phone window's aspect ratio is locked to the guest's screen
+    // resolution at creation and stays locked through resizing, so it's always
+    // portrait — unlike those two, which are always landscape. Bounds aren't gated by
+    // that permission, so orientation is a reliable, permission-free discriminator.
+    //
+    // Orientation alone isn't quite enough, though: the same process also transiently
+    // reports tiny Exposé/Mission-Control preview windows (well under 200pt either
+    // dimension) and a square QuickLook panel it keeps around for the Files browser,
+    // and either could otherwise slip through. A phone screen is comfortably bigger
+    // than both, so a minimum-size floor filters them out too.
+    private func isPhoneWindowShape(_ bounds: CGRect) -> Bool {
+        bounds.height > bounds.width && bounds.width >= 250 && bounds.height >= 400
+    }
+
+    // Only used by the title-based fallback below, which does need Screen Recording
+    // permission to see anything — kept best-effort for when that's granted.
     private func isPhoneWindowTitle(_ title: String?) -> Bool {
         (title ?? "").lowercased().hasPrefix("vphone [")
     }
@@ -221,7 +235,10 @@ final class AppController: @unchecked Sendable {
         for info in list {
             guard (info[kCGWindowOwnerPID as String] as? Int32) == pid,
                   (info[kCGWindowLayer as String] as? Int ?? 1) == 0,
-                  isPhoneWindowTitle(info[kCGWindowName as String] as? String) else { continue }
+                  let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
+                  let rect = CGRect(dictionaryRepresentation: boundsDict as CFDictionary),
+                  isPhoneWindowShape(rect)
+            else { continue }
             if info[kCGWindowIsOnscreen as String] as? Bool == false { return true }
         }
         return false
@@ -234,15 +251,19 @@ final class AppController: @unchecked Sendable {
         for info in list {
             guard (info[kCGWindowOwnerPID as String] as? Int32) == pid,
                   (info[kCGWindowLayer as String] as? Int ?? 1) == 0,
-                  isPhoneWindowTitle(info[kCGWindowName as String] as? String),
                   let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
-                  let rect = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
+                  let rect = CGRect(dictionaryRepresentation: boundsDict as CFDictionary),
+                  isPhoneWindowShape(rect)
             else { continue }
             return rect
         }
         return nil
     }
 
+    // Fallback for the rare case findVphoneApp() can't resolve the process — scans
+    // every on-screen window system-wide, so it leans on the title (when Screen
+    // Recording permission allows reading it) rather than shape alone, which would be
+    // too broad a net across unrelated apps' windows.
     private func windowFrameByTitle() -> CGRect? {
         let opts = CGWindowListOption([.optionOnScreenOnly, .excludeDesktopElements])
         guard let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]]
