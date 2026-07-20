@@ -9,6 +9,28 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-20
+
+### Added
+
+- Plugin deployment: vbound builds every plugin in the configured workspace,
+  replaces each plugin's deployed `dist/` payload on vphone, and relaunches
+  Discord. The Discord data-container UUID is discovered on-device, so it
+  remains correct across installs.
+- An Addon Workspace folder picker in Settings.
+
+### Changed
+
+- The status-strip controls are now labelled Discord, Tweak, and Addons.
+
+### Fixed
+
+- Plugin builds now include Bun's standard `~/.bun/bin` location in vbound's
+  process environment, allowing the Addons action to find `bunx` when the app
+  is launched outside a shell.
+- Addon deployment no longer relies on nested remote-shell quoting and skips
+  local SSH-key offers before authenticating with the configured device password.
+
 ## [0.11.2] - 2026-07-20
 
 ### Fixed
