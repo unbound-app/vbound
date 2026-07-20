@@ -201,6 +201,7 @@ struct ContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(manager.vphoneDetected ? .red : Color.accentColor)
+            .focusable(false)
             .disabled(manager.isBooting || (!manager.vphoneDetected && !pathValid(vphoneCliPath)))
             .help(manager.vphoneDetected ? "Shut down vphone" : bootHelpText)
             .confirmationDialog("Shut down vphone?", isPresented: $showShutdownConfirm) {
@@ -224,6 +225,7 @@ struct ContentView: View {
                 Label { Text("Discord") } icon: { Image("Discord") }
             }
             .buttonStyle(.bordered)
+            .focusable(false)
             .disabled(!manager.vphoneDetected || manager.isLaunchingDiscord)
             .help(manager.discordLaunchFailed
                   ? "Failed to restart Discord — check the device password in Settings"
@@ -255,6 +257,7 @@ struct ContentView: View {
             }
             .buttonStyle(.bordered)
             .tint(manager.buildPhase.isRunning && manager.activeBuildTarget == .tweak ? .red : Color.accentColor)
+            .focusable(false)
             .disabled(manager.buildPhase.isRunning
                       ? manager.activeBuildTarget != .tweak
                       : !pathValid(unboundPath))
@@ -274,6 +277,7 @@ struct ContentView: View {
             }
             .buttonStyle(.bordered)
             .tint(manager.buildPhase.isRunning && manager.activeBuildTarget == .plugins ? .red : Color.accentColor)
+            .focusable(false)
             .disabled(manager.buildPhase.isRunning
                       ? manager.activeBuildTarget != .plugins
                       : !pathValid(unboundPluginsPath))
@@ -287,6 +291,7 @@ struct ContentView: View {
                 Label("Settings", systemImage: "gearshape")
             }
             .buttonStyle(.bordered)
+            .focusable(false)
             .help("Settings")
         }
         .controlSize(.regular)

@@ -9,6 +9,15 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [0.13.3] - 2026-07-20
+
+### Fixed
+
+- Every status-strip button (Boot/Stop, Discord, Tweak, Addons, Settings) showed the
+  window's default keyboard-focus ring whenever vbound became the key window, not just
+  the Mount/Finder button — all of them are now excluded from keyboard focus, matching
+  the fix already applied there.
+
 ## [0.13.2] - 2026-07-20
 
 ### Changed
