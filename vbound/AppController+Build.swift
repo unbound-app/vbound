@@ -15,11 +15,11 @@ extension AppController {
             ], onLaunch: { [weak self] p in self?.buildProcess = p }) { [weak self] line in
                 self?.buildLog = line
             }
-            guard built else { return fail("Plugin build failed") }
+            guard built else { return fail("Addon build failed") }
             guard !Task.isCancelled else { return }
 
             let pluginDists = findPluginDists(in: dirPath)
-            guard !pluginDists.isEmpty else { return fail("No plugin dist folders found") }
+            guard !pluginDists.isEmpty else { return fail("No addon dist folders found") }
 
             await ensurePortForward()
             guard !Task.isCancelled else { return }
@@ -27,26 +27,27 @@ extension AppController {
             buildPhase = .deployingPlugins
             for (name, distPath) in pluginDists {
                 let stagingPath = "/tmp/vbound-plugin-\(UUID().uuidString)"
-                buildLog = "Deploying \(name)…"
+                buildLog = "Deploying addon \(name)…"
                 let uploaded = await run(args: [
                     "sshpass", "-p", sshPassword, "scp",
                     "-r",
                     "-P", "2222",
                     "-o", "StrictHostKeyChecking=no",
                     "-o", "UserKnownHostsFile=/dev/null",
+                    "-o", "PubkeyAuthentication=no",
                     "-o", "ControlMaster=auto",
                     "-o", "ControlPath=\(AppController.sshControlPath)",
                     "-o", "ControlPersist=60",
                     distPath, "mobile@127.0.0.1:\(stagingPath)"
                 ], onLaunch: { [weak self] p in self?.buildProcess = p })
-                guard uploaded else { return fail("Plugin upload failed") }
+                guard uploaded else { return fail("Addon upload failed") }
                 guard !Task.isCancelled else { return }
 
                 let deployed = await run(
                     ssh: pluginDeploymentCommand(name: name, stagingPath: stagingPath),
                     onLaunch: { [weak self] p in self?.buildProcess = p }
                 )
-                guard deployed else { return fail("Plugin deployment failed") }
+                guard deployed else { return fail("Addon deployment failed") }
                 guard !Task.isCancelled else { return }
             }
 
@@ -116,6 +117,7 @@ extension AppController {
                 "-P", "2222",
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "PubkeyAuthentication=no",
                 "-o", "ControlMaster=auto",
                 "-o", "ControlPath=\(AppController.sshControlPath)",  // #8
                 "-o", "ControlPersist=60",
@@ -272,7 +274,10 @@ extension AppController {
         rm -rf "$plugins"/\(Self.shellQuoted(name))
         mv \(Self.shellQuoted(stagingPath)) "$plugins"/\(Self.shellQuoted(name))
         """
-        return "echo \(Self.shellQuoted(sshPassword)) | sudo -S /var/jb/usr/bin/sh -c \(Self.shellQuoted(script))"
+        let encodedScript = Data(script.utf8).base64EncodedString()
+        return "{ printf '%s\\n' \(Self.shellQuoted(sshPassword)); "
+             + "printf '%s' \(Self.shellQuoted(encodedScript)) | /var/jb/usr/bin/base64 -d; "
+             + "} | sudo -S /var/jb/usr/bin/sh"
     }
 
     private nonisolated static func shellQuoted(_ value: String) -> String {

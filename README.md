@@ -32,7 +32,7 @@ vbound automatically detects the vphone window and attaches its panel to the rig
 | **Shut Down** | Gracefully shuts down the virtual device via `pymobiledevice3 diagnostics shutdown` |
 | **Discord** | Kills and relaunches Discord on the virtual device |
 | **Tweak** | Builds the tweak (`gmake package`) and deploys it via SSH on port 2222 |
-| **Plugins** | Builds every plugin (`bunx ubd build`), replaces each deployed plugin with its `dist/` contents, then relaunches Discord |
+| **Addons** | Builds every plugin (`bunx ubd build`), replaces each deployed plugin with its `dist/` contents, then relaunches Discord |
 | **Stream** | Live-tails device logs filtered to `app.unbound` and `com.facebook.react.log` subsystems, with an optional merged view |
 | **Shell** | Opens an SSH terminal session to the device (`mobile@127.0.0.1:2222`) |
 

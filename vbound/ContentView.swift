@@ -237,11 +237,11 @@ struct ContentView: View {
                 logAutoScroll = true
                 manager.buildPlugins(in: unboundPluginsPath)
             } label: {
-                Label("Plugins", systemImage: "puzzlepiece.extension.fill")
+                Label("Addons", systemImage: "puzzlepiece.extension.fill")
             }
             .buttonStyle(.bordered)
             .disabled(manager.buildPhase.isRunning || !pathValid(unboundPluginsPath))
-            .help(pluginsHelpText)
+            .help(addonsHelpText)
 
             Divider().frame(height: 16)
 
@@ -937,10 +937,10 @@ struct ContentView: View {
         return "Build and install the Unbound tweak"
     }
 
-    private var pluginsHelpText: String {
+    private var addonsHelpText: String {
         if manager.buildPhase.isRunning { return "A task is already running" }
-        if !pathValid(unboundPluginsPath) { return "Plugin workspace path is invalid — check Settings" }
-        return "Build, deploy, and reload plugins"
+        if !pathValid(unboundPluginsPath) { return "Addon workspace path is invalid — check Settings" }
+        return "Build, deploy, and reload addons"
     }
 
     private func styledShellText() -> Text {

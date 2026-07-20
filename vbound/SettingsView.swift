@@ -75,7 +75,7 @@ private struct GeneralSettingsView: View {
             Section("Paths") {
                 FolderPicker(label: "vphone-cli", path: $vphoneCliPath)
                 FolderPicker(label: "Unbound Tweak", path: $unboundPath)
-                FolderPicker(label: "Plugin Workspace", path: $unboundPluginsPath)
+                FolderPicker(label: "Addon Workspace", path: $unboundPluginsPath)
             }
 
             Section("Connection") {

@@ -190,13 +190,13 @@ enum BuildPhase: Equatable {
         switch self {
         case .idle:            return ""
         case .building:        return "Building…"
-        case .buildingPlugins: return "Building plugins…"
+        case .buildingPlugins: return "Building addons…"
         case .uploading:       return "Uploading…"
         case .installing:      return "Installing…"
-        case .deployingPlugins:return "Deploying plugins…"
+        case .deployingPlugins:return "Deploying addons…"
         case .restarting:      return "Restarting Discord…"
         case .succeeded:       return "Build installed"
-        case .pluginsDeployed: return "Plugins deployed"
+        case .pluginsDeployed: return "Addons deployed"
         case .cancelled:       return "Build cancelled"
         case .failed(let msg): return msg
         }

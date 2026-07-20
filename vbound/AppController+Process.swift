@@ -104,6 +104,7 @@ extension AppController {
             "-o", "ConnectTimeout=5",
             "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "PubkeyAuthentication=no",
             "-o", "ControlMaster=auto",
             "-o", "ControlPath=\(AppController.sshControlPath)",  // #8
             "-o", "ControlPersist=60",
