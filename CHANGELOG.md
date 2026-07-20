@@ -9,6 +9,19 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-07-20
+
+### Fixed
+
+- 0.11.1's window-matching fix relied on reading vphone-cli's window
+  titles, which macOS silently blanks out unless vbound has Screen
+  Recording permission (which it has no reason to ask for) — so
+  attachment stopped working entirely instead of just picking the wrong
+  window. Matching now uses window shape (the phone display is portrait
+  and a minimum plausible size; vphone-cli's "Files"/"Keychain" browser
+  windows and its transient preview/QuickLook windows aren't), which
+  needs no special permission.
+
 ## [0.11.1] - 2026-07-20
 
 ### Fixed
@@ -16,8 +29,7 @@ Releases before 0.8.0 are documented in their
 - vbound would sometimes attach and snap to vphone-cli's "Files" or
   "Keychain" browser windows instead of the actual phone display window,
   since both are owned by the same process and matching only checked the
-  process/title loosely. Attachment now targets the phone window
-  specifically (identified by its "VPHONE [...]" title).
+  process/title loosely.
 - The panel would stay glued on top of the screen at its floating window
   level if vphone was dismissed some way other than quitting or a literal
   Dock miniaturize (e.g. swept away by Stage Manager). It now hides itself
