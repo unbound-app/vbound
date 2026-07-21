@@ -14,14 +14,15 @@ macOS floating panel that attaches to the vphone window and streamlines Unbound 
 - [loader-ios](https://github.com/unbound-app/loader-ios) — Unbound tweak source
 - [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) — `pipx install pymobiledevice3`
 - [sshpass](https://formulae.brew.sh/formula/sshpass) — `brew install sshpass`
-- Optional, for mounting vphone in Finder: [FUSE-T](https://www.fuse-t.org) + FUSE-T's own sshfs build —
-  `brew install --cask fuse-t && brew tap macos-fuse-t/homebrew-cask && brew install --cask macos-fuse-t/homebrew-cask/fuse-t-sshfs`
-  (`brew trust macos-fuse-t/homebrew-cask` first if Homebrew refuses the tap).
-  Use this exact package, not the more commonly recommended `gromgit/fuse/sshfs-mac` —
-  that one is built against classic macFUSE/libfuse headers and silently fails to
-  actually attach the mount under FUSE-T (exits successfully, prints "library too old",
-  and the mount point just stays empty). vbound specifically looks for sshfs at
-  `/usr/local/bin/sshfs`, where the FUSE-T build installs.
+- Optional, for mounting vphone in Finder: [macFUSE](https://macfuse.github.io) + sshfs —
+  `brew install --cask macfuse && brew install gromgit/fuse/sshfs-mac`.
+  After installing, **macOS will block the macFUSE kernel extension** — go to
+  System Settings → Privacy & Security, click Allow next to the blocked extension, and
+  restart if prompted. Not FUSE-T: it has an open, unfixed upstream bug
+  ([macos-fuse-t/fuse-t#63](https://github.com/macos-fuse-t/fuse-t/issues/63)) where it
+  doesn't honor the FUSE readdir offset contract, breaking directory listings outright.
+  vbound specifically looks for sshfs at `/opt/homebrew/bin/sshfs`, where the
+  macFUSE-targeted build installs.
 
 ## Building
 

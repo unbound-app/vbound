@@ -988,7 +988,7 @@ struct ContentView: View {
         if manager.isMounted   { return "Open vphone in Finder (right-click to unmount)" }
         if manager.isMounting  { return "Mounting…" }
         if !manager.sshfsAvailable {
-            return "sshfs not found — install FUSE-T and sshfs-mac to mount vphone in Finder"
+            return "sshfs not found — install macFUSE and sshfs-mac to mount vphone in Finder"
         }
         return "Mount vphone's filesystem in Finder"
     }

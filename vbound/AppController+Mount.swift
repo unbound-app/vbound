@@ -41,16 +41,15 @@ extension AppController {
         return image
     }
 
-    // Only the FUSE-T-native build (macos-fuse-t/homebrew-cask/fuse-t-sshfs, installs to
-    // /usr/local/bin) is known to work here. gromgit/fuse/sshfs-mac — the more commonly
-    // recommended formula, installs to /opt/homebrew/bin — is built against classic
-    // macFUSE/libfuse headers: against FUSE-T it prints "library too old", exits 0, and
-    // never actually attaches the mount, leaving the folder silently empty. Deliberately
-    // not falling back to it: /opt/homebrew/bin sits earlier in enrichedEnvironment's
-    // PATH than /usr/local/bin, so a bare "sshfs" lookup would prefer the broken one even
-    // with the correct package also installed.
+    // Targets macFUSE, not FUSE-T: FUSE-T has an open, unfixed upstream bug
+    // (macos-fuse-t/fuse-t#63 — "Improper use of offset in readdir") where it doesn't
+    // honor the FUSE readdir offset contract, so any directory listing that doesn't fit
+    // in a single response silently breaks — confirmed directly against a live device,
+    // on directories as small as 14 entries. That's not fixable from vbound's side.
+    // gromgit/fuse/sshfs-mac (installs to /opt/homebrew/bin) is the sshfs build meant to
+    // pair with macFUSE, which implements the real FUSE spec correctly.
     static var sshfsPath: String? {
-        let path = "/usr/local/bin/sshfs"
+        let path = "/opt/homebrew/bin/sshfs"
         return FileManager.default.isExecutableFile(atPath: path) ? path : nil
     }
 
@@ -68,7 +67,16 @@ extension AppController {
                 return
             }
             await ensurePortForward()
-            _ = await run(args: [
+
+            // Not routed through the shared run(args:) helper — with -o reconnect, sshfs
+            // never daemonizes; it stays in the foreground as the FUSE server for as long
+            // as the mount is alive (confirmed directly: the process was still running
+            // minutes after a successful mount). Awaiting its exit would hang forever, so
+            // it's launched and tracked like shellProcess/logStreamProcess instead, and
+            // mount success is polled via ground truth rather than the process lifecycle.
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            p.arguments = [
                 "sshpass", "-p", sshPassword,
                 sshfsPath,
                 "-p", "2222",
@@ -81,11 +89,25 @@ extension AppController {
                 "-o", "volname=vphone",
                 "mobile@127.0.0.1:/var/mobile",
                 AppController.mountPath
-            ])
+            ]
+            p.environment = enrichedEnvironment
+            do {
+                try p.run()
+                mountProcess = p
+            } catch {
+                isMounting = false
+                return
+            }
+
+            for _ in 0..<25 {  // ~5s at 200ms — sshfs attaches almost immediately once it does
+                if await isPathMounted(AppController.mountPath) {
+                    isMounting = false; isMounted = true
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(200))
+            }
             isMounting = false
-            // Ground-truth check rather than trusting sshfs's exit code — it can exit 0
-            // without ever actually attaching the mount (see the FUSE-T note above).
-            isMounted = await isPathMounted(AppController.mountPath)
+            isMounted = false
         }
     }
 
@@ -94,14 +116,18 @@ extension AppController {
         Task { [weak self] in
             guard let self else { return }
             _ = await run(args: ["umount", AppController.mountPath])
-            // FUSE-T's NFS-loopback mounts can shrug off a plain umount and stay listed
-            // in `mount` — confirmed directly: umount / umount -f both reported success or
-            // "not mounted" while the entry stuck around, and only diskutil's forced
-            // unmount actually cleared it.
+            // Fall back to a forced unmount if the mount is still listed afterward —
+            // observed directly against a wedged FUSE-T mount during earlier testing
+            // (umount / umount -f both no-opped while `mount` still listed the entry);
+            // kept as a defensive fallback regardless of backend.
             if await isPathMounted(AppController.mountPath) {
                 _ = await run(args: ["diskutil", "unmount", "force", AppController.mountPath])
             }
             isMounted = await isPathMounted(AppController.mountPath)
+            if !isMounted {
+                mountProcess?.terminate()
+                mountProcess = nil
+            }
         }
     }
 

@@ -41,6 +41,7 @@ final class AppController: @unchecked Sendable {
     }()
 
     weak var ourWindow:   NSWindow?
+    var mountProcess:     Process?
     var forwardProcess:   Process?
     var buildTask:        Task<Void, Never>?
     var buildProcess:     Process?

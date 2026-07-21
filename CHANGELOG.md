@@ -9,6 +9,20 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-07-21
+
+### Fixed
+
+- The Finder mount now actually works, end to end, verified against a live device.
+  It targets macFUSE + `gromgit/fuse/sshfs-mac` instead of FUSE-T, which has an open,
+  unfixed upstream bug ([macos-fuse-t/fuse-t#63](https://github.com/macos-fuse-t/fuse-t/issues/63))
+  that breaks directory listings outright. Separately, sshfs with `-o reconnect` runs
+  in the foreground as the FUSE server for as long as the mount is alive rather than
+  daemonizing — vbound was awaiting its exit to detect mount success, which hung
+  forever and left the Mount button stuck showing "Mounting…" even though the mount
+  had actually succeeded. It's now tracked as a persistent process (like the shell/log
+  stream connections) and mount success is polled against `mount` output instead.
+
 ## [0.13.3] - 2026-07-20
 
 ### Fixed
