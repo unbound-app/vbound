@@ -55,6 +55,28 @@ extension AppController {
 
     var sshfsAvailable: Bool { AppController.sshfsPath != nil }
 
+    // mobile-authenticated SFTP can't read root-owned entries (.fseventsd, dirs_cleaner,
+    // .DocumentRevisions-V100, ...) — confirmed directly, "Permission denied" over plain
+    // SSH as mobile too, so this isn't a mount-specific gap. Root SSH login is refused
+    // outright on vphone (tested), but mobile already has full sudo — so instead of
+    // authenticating as root, sshfs is told to run the *remote* sftp-server through sudo
+    // via -o sftp_server, matching the same sudo trust this app already uses for
+    // Discord's restart/install steps. NOPASSWD is scoped to just this one binary path
+    // (verified: sudo -n on anything else on vphone still demands a password).
+    private static let rootSFTPServerPath = "/var/jb/usr/libexec/sftp-server"
+
+    private func ensureRootSFTPSudoers() async -> Bool {
+        let sudoersLine = "mobile ALL=(root) NOPASSWD: \(AppController.rootSFTPServerPath)"
+        let script = """
+        printf '%s\\n' \(Self.shellQuoted(sudoersLine)) > /var/jb/etc/sudoers.d/vbound-sftp
+        chmod 0440 /var/jb/etc/sudoers.d/vbound-sftp
+        """
+        let encodedScript = Data(script.utf8).base64EncodedString()
+        return await run(ssh: "{ printf '%s\\n' \(Self.shellQuoted(sshPassword)); "
+             + "printf '%s' \(Self.shellQuoted(encodedScript)) | /var/jb/usr/bin/base64 -d; "
+             + "} | sudo -S /var/jb/usr/bin/sh")
+    }
+
     func mountVphone() {
         guard !isMounted, !isMounting, let sshfsPath = AppController.sshfsPath else { return }
         isMounting = true
@@ -67,6 +89,9 @@ extension AppController {
                 return
             }
             await ensurePortForward()
+            // Best-effort: if this fails (no sudo, path doesn't exist on this JB variant,
+            // ...) the mount still proceeds as mobile, same as before this existed.
+            _ = await ensureRootSFTPSudoers()
 
             // Not routed through the shared run(args:) helper — with -o reconnect, sshfs
             // never daemonizes; it stays in the foreground as the FUSE server for as long
@@ -87,6 +112,7 @@ extension AppController {
                 "-o", "ServerAliveInterval=15",
                 "-o", "ServerAliveCountMax=3",
                 "-o", "volname=vphone",
+                "-o", "sftp_server=sudo \(AppController.rootSFTPServerPath)",
                 "mobile@127.0.0.1:/var/mobile",
                 AppController.mountPath
             ]

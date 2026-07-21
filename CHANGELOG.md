@@ -9,6 +9,19 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-07-21
+
+### Added
+
+- The Finder mount now has root-level file access, not just `mobile`'s. sshfs
+  authenticates as `mobile` (root SSH login is refused outright on vphone), which
+  previously meant root-owned paths like `.fseventsd` and `dirs_cleaner` showed up
+  empty — confirmed this wasn't mount-specific: plain SSH as `mobile` gets the same
+  `Permission denied`. vbound now grants `mobile` passwordless `sudo` for just the
+  device's `sftp-server` binary and routes the mount's remote SFTP process through
+  `sudo`, matching the trust boundary the Tweak/Addons actions already use for
+  `sudo dpkg`/`killall`.
+
 ## [0.14.0] - 2026-07-21
 
 ### Fixed

@@ -281,7 +281,9 @@ extension AppController {
              + "} | sudo -S /var/jb/usr/bin/sh"
     }
 
-    private nonisolated static func shellQuoted(_ value: String) -> String {
+    // Not private: AppController+Mount.swift's root-sftp provisioning script needs the
+    // same remote-shell quoting.
+    nonisolated static func shellQuoted(_ value: String) -> String {
         "'\(value.replacing("'", with: "'\\\"'\\\"'"))'"
     }
 }

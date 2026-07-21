@@ -22,7 +22,11 @@ macOS floating panel that attaches to the vphone window and streamlines Unbound 
   ([macos-fuse-t/fuse-t#63](https://github.com/macos-fuse-t/fuse-t/issues/63)) where it
   doesn't honor the FUSE readdir offset contract, breaking directory listings outright.
   vbound specifically looks for sshfs at `/opt/homebrew/bin/sshfs`, where the
-  macFUSE-targeted build installs.
+  macFUSE-targeted build installs. The mount authenticates as `mobile`, but vbound
+  automatically grants that account passwordless `sudo` for just the device's
+  `sftp-server` binary and routes the mount through it, so root-owned paths
+  (`.fseventsd`, `dirs_cleaner`, etc.) are visible too — the same trust boundary the
+  Tweak/Addons actions already rely on for `sudo dpkg`/`killall`.
 
 ## Building
 
