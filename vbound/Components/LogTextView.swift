@@ -331,6 +331,8 @@ struct LogTextView: NSViewRepresentable {
         sv.hasHorizontalScroller = true
         sv.autohidesScrollers    = true
         sv.borderType            = .noBorder
+        sv.drawsBackground       = true
+        sv.backgroundColor       = .textBackgroundColor
 
         let ts = NSTextStorage()
         let lm = NSLayoutManager()

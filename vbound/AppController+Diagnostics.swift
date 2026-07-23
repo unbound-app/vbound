@@ -7,8 +7,8 @@ extension AppController {
         sshTestState = .testing
         Task { [weak self] in
             guard let self else { return }
-            await ensurePortForward()
-            let ok = await run(ssh: "echo vbound-ok")
+            let forwarded = await ensurePortForward()
+            let ok = forwarded ? await run(ssh: "echo vbound-ok") : false
             sshTestState = ok ? .success : .failure("Couldn't reach mobile@127.0.0.1:2222 — check the device password and that vphone is running")
             try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled else { return }

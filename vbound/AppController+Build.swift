@@ -43,7 +43,7 @@ extension AppController {
             let pluginDists = findPluginDists(in: dirPath)
             guard !pluginDists.isEmpty else { return fail("No addon dist folders found") }
 
-            await ensurePortForward()
+            guard await ensurePortForward() else { return fail("Could not connect to vphone over SSH") }
             guard !Task.isCancelled else { return }
 
             buildPhase = .deployingPlugins
@@ -59,7 +59,7 @@ extension AppController {
             if !isStreaming { startLogStream() }
             buildLog = ""; buildLogFull = ""; buildProgress = 0
             buildPhase = .deployingPlugins; activeBuildTarget = .plugins
-            await ensurePortForward()
+            guard await ensurePortForward() else { return fail("Could not connect to vphone over SSH") }
             guard !Task.isCancelled else { return }
             await deployPlugins(toRetry)
         }
@@ -67,6 +67,8 @@ extension AppController {
 
     private func deployPlugins(_ pluginDists: [(name: String, path: String)]) async {
         activeProcesses = []
+        buildProgress = 0
+        buildLog = "Deploying \(pluginDists.count) addons…"
         let results: [(name: String, path: String, ok: Bool)] = await withTaskGroup(of: (String, String, Bool).self) { group in
             for (name, distPath) in pluginDists {
                 group.addTask { [weak self] in
@@ -76,7 +78,11 @@ extension AppController {
                 }
             }
             var collected: [(String, String, Bool)] = []
-            for await result in group { collected.append(result) }
+            for await result in group {
+                collected.append(result)
+                buildProgress = Double(collected.count) / Double(pluginDists.count)
+                buildLog = "Deployed \(collected.count) of \(pluginDists.count) addons…"
+            }
             return collected
         }
         guard !Task.isCancelled else { return }
@@ -113,7 +119,6 @@ extension AppController {
 
     private func deployOnePlugin(name: String, distPath: String) async -> Bool {
         let stagingPath = "/tmp/vbound-plugin-\(UUID().uuidString)"
-        buildLog = "Deploying addon \(name)…"
         let uploaded = await run(args: [
             "sshpass", "-p", sshPassword, "scp",
             "-r",
@@ -121,15 +126,19 @@ extension AppController {
             "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null",
             "-o", "PubkeyAuthentication=no",
+            "-o", "ConnectTimeout=5",
+            "-o", "ServerAliveInterval=5",
+            "-o", "ServerAliveCountMax=2",
             "-o", "ControlMaster=auto",
             "-o", "ControlPath=\(AppController.sshControlPath)",
             "-o", "ControlPersist=60",
             distPath, "mobile@127.0.0.1:\(stagingPath)"
-        ], onLaunch: { [weak self] p in self?.activeProcesses.append(p) })
+        ], timeout: 20, onLaunch: { [weak self] p in self?.activeProcesses.append(p) })
         guard uploaded, !Task.isCancelled else { return false }
 
         let deployed = await run(
             ssh: pluginDeploymentCommand(name: name, stagingPath: stagingPath),
+            timeout: 15,
             onLaunch: { [weak self] p in self?.activeProcesses.append(p) }
         )
         return deployed && !Task.isCancelled
@@ -184,7 +193,7 @@ extension AppController {
             let debName   = URL(fileURLWithPath: debPath).lastPathComponent
             let remoteDeb = "/tmp/\(debName)"
 
-            await ensurePortForward()
+            guard await ensurePortForward() else { return fail("Could not connect to vphone over SSH") }
             guard !Task.isCancelled else { return }
 
             buildPhase = .uploading; buildLog = ""; buildProgress = 0
@@ -384,14 +393,9 @@ extension AppController {
 
     private func pluginDeploymentCommand(name: String, stagingPath: String) -> String {
         let script = """
-        container="$(for metadata in /private/var/mobile/Containers/Data/Application/*/.com.apple.mobile_container_manager.metadata.plist; do
-            [ -f "$metadata" ] || continue
-            if grep -q 'com.hammerandchisel.discord' "$metadata"; then
-                dirname "$metadata"
-                break
-            fi
-        done)"
-        [ -n "$container" ] || exit 1
+        metadata="$(grep -l -m 1 'com.hammerandchisel.discord' /private/var/mobile/Containers/Data/Application/*/.com.apple.mobile_container_manager.metadata.plist 2>/dev/null | head -n 1)"
+        [ -n "$metadata" ] || exit 1
+        container="$(dirname "$metadata")"
         plugins="$container/Documents/Unbound/Plugins"
         mkdir -p "$plugins"
         rm -rf "$plugins"/\(Self.shellQuoted(name))

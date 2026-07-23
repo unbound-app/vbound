@@ -1,10 +1,91 @@
 import SwiftUI
+import AppKit
+
+private struct PaletteKeyboardMonitor: NSViewRepresentable {
+    let moveUp: () -> Void
+    let moveDown: () -> Void
+    let submit: () -> Void
+    let dismiss: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(moveUp: moveUp, moveDown: moveDown, submit: submit, dismiss: dismiss)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        context.coordinator.start()
+        return NSView()
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        context.coordinator.moveUp = moveUp
+        context.coordinator.moveDown = moveDown
+        context.coordinator.submit = submit
+        context.coordinator.dismiss = dismiss
+    }
+
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        coordinator.stop()
+    }
+
+    final class Coordinator {
+        var moveUp: () -> Void
+        var moveDown: () -> Void
+        var submit: () -> Void
+        var dismiss: () -> Void
+        private var monitor: Any?
+
+        init(
+            moveUp: @escaping () -> Void,
+            moveDown: @escaping () -> Void,
+            submit: @escaping () -> Void,
+            dismiss: @escaping () -> Void
+        ) {
+            self.moveUp = moveUp
+            self.moveDown = moveDown
+            self.submit = submit
+            self.dismiss = dismiss
+        }
+
+        func start() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self else { return event }
+                switch event.keyCode {
+                case 125:
+                    moveDown()
+                case 126:
+                    moveUp()
+                case 36, 76:
+                    submit()
+                case 53:
+                    dismiss()
+                default:
+                    return event
+                }
+                return nil
+            }
+        }
+
+        func stop() {
+            guard let monitor else { return }
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
+    }
+}
 
 private struct PaletteCommand: Identifiable {
-    let id = UUID()
+    let id: String
     let title: String
     let icon: String
     let action: () -> Void
+
+    init(title: String, icon: String, action: @escaping () -> Void) {
+        id = "\(icon)-\(title)"
+        self.title = title
+        self.icon = icon
+        self.action = action
+    }
 }
 
 struct CommandPaletteView: View {
@@ -83,7 +164,10 @@ struct CommandPaletteView: View {
 
             card
         }
-        .onAppear { searchFocused = true }
+        .task {
+            await Task.yield()
+            searchFocused = true
+        }
     }
 
     private var card: some View {
@@ -94,44 +178,44 @@ struct CommandPaletteView: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 14))
                     .focused($searchFocused)
-                    .onKeyPress(.escape) { close(); return .handled }
-                    .onKeyPress(.downArrow) {
-                        selectedIndex = min(selectedIndex + 1, max(filtered.count - 1, 0))
-                        return .handled
-                    }
-                    .onKeyPress(.upArrow) {
-                        selectedIndex = max(selectedIndex - 1, 0)
-                        return .handled
-                    }
                     .onSubmit { runSelected() }
             }
             .padding(12)
 
             Divider()
 
-            ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(Array(filtered.enumerated()), id: \.element.id) { index, command in
-                        Button {
-                            command.action()
-                            close()
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: command.icon).frame(width: 16)
-                                Text(command.title)
-                                Spacer()
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(Array(filtered.enumerated()), id: \.element.id) { index, command in
+                            Button {
+                                command.action()
+                                close()
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: command.icon).frame(width: 16)
+                                    Text(command.title)
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(index == selectedIndex ? Color.accentColor.opacity(0.15) : Color.clear)
+                                .contentShape(Rectangle())
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(index == selectedIndex ? Color.accentColor.opacity(0.15) : Color.clear)
-                            .contentShape(Rectangle())
+                            .buttonStyle(.plain)
+                            .id(command.id)
                         }
-                        .buttonStyle(.plain)
+                        if filtered.isEmpty {
+                            Text("No matching commands")
+                                .foregroundStyle(.secondary)
+                                .padding()
+                        }
                     }
-                    if filtered.isEmpty {
-                        Text("No matching commands")
-                            .foregroundStyle(.secondary)
-                            .padding()
+                }
+                .onChange(of: selectedIndex) { _, index in
+                    guard filtered.indices.contains(index) else { return }
+                    withAnimation(.easeOut(duration: 0.1)) {
+                        proxy.scrollTo(filtered[index].id, anchor: .center)
                     }
                 }
             }
@@ -142,6 +226,16 @@ struct CommandPaletteView: View {
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.separator))
         .shadow(color: .black.opacity(0.25), radius: 24, y: 8)
         .onChange(of: query) { _, _ in selectedIndex = 0 }
+        .background(
+            PaletteKeyboardMonitor(
+                moveUp: { selectedIndex = max(selectedIndex - 1, 0) },
+                moveDown: {
+                    selectedIndex = min(selectedIndex + 1, max(filtered.count - 1, 0))
+                },
+                submit: runSelected,
+                dismiss: close
+            )
+        )
     }
 
     private func runSelected() {

@@ -21,7 +21,10 @@ extension AppController {
 
         Task { [weak self] in
             guard let self else { return }
-            await ensurePortForward()
+            guard await ensurePortForward() else {
+                await retryShellConnectionIfNeeded()
+                return
+            }
 
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -31,6 +34,10 @@ extension AppController {
                 "-p", "2222",
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "PubkeyAuthentication=no",
+                "-o", "ConnectTimeout=5",
+                "-o", "ServerAliveInterval=5",
+                "-o", "ServerAliveCountMax=2",
                 "-o", "ControlMaster=auto",
                 "-o", "ControlPath=\(AppController.sshControlPath)",  // #8
                 "-o", "ControlPersist=60",
@@ -62,7 +69,7 @@ extension AppController {
             }
 
             do { try p.run() } catch {
-                await MainActor.run { self.isShellConnecting = false }
+                await retryShellConnectionIfNeeded()
                 return
             }
 
@@ -86,11 +93,22 @@ extension AppController {
             }
 
             // Auto-reconnect on unexpected drops; suppressed when disconnectShell() clears the flag (#6)
-            guard self.shellAutoReconnect, !Task.isCancelled else { return }
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled, self.shellAutoReconnect else { return }
-            await MainActor.run { [weak self] in self?.beginShellConnection() }
+            await retryShellConnectionIfNeeded()
         }
+    }
+
+    private func retryShellConnectionIfNeeded() async {
+        guard shellAutoReconnect, !Task.isCancelled else {
+            isShellConnecting = false
+            return
+        }
+        isShellConnecting = true
+        try? await Task.sleep(for: .seconds(2))
+        guard shellAutoReconnect, !Task.isCancelled else {
+            isShellConnecting = false
+            return
+        }
+        beginShellConnection()
     }
 
     func sendShellInput(_ text: String) {

@@ -58,7 +58,10 @@ extension AppController {
         Task {
             defer { isLaunchingDiscord = false }
             if !isStreaming { startLogStream() }
-            await ensurePortForward()
+            guard await ensurePortForward() else {
+                discordLaunchFailed = true
+                return
+            }
             let restarted = await restartDiscord()
             discordLaunchFailed = !restarted
             // Auto-clears like the build result toasts do — a stale red badge with no

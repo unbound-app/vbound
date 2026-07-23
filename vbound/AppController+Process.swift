@@ -108,7 +108,11 @@ extension AppController {
         }
     }
 
-    func run(ssh command: String, onLaunch: ((Process) -> Void)? = nil) async -> Bool {
+    func run(
+        ssh command: String,
+        timeout: TimeInterval? = nil,
+        onLaunch: ((Process) -> Void)? = nil
+    ) async -> Bool {
         await run(args: [
             "sshpass", "-p", sshPassword,
             "ssh",
@@ -122,7 +126,7 @@ extension AppController {
             "-o", "ControlPersist=60",
             "mobile@127.0.0.1",
             command
-        ], onLaunch: onLaunch)
+        ], timeout: timeout, onLaunch: onLaunch)
     }
 
     func runCapture(args: [String], timeout: TimeInterval? = nil) async -> String {
@@ -164,19 +168,45 @@ extension AppController {
         }
     }
 
-    func ensurePortForward() async {
+    @discardableResult
+    func ensurePortForward() async -> Bool {
         let reachable = await run(args: ["nc", "-z", "-w", "1", "127.0.0.1", "2222"])
-        if reachable { return }
+        if reachable, forwardProcess?.isRunning == true { return true }
 
         forwardProcess?.terminate()
+        forwardProcess = nil
+        try? await Task.sleep(for: .milliseconds(250))
+
+        var udid = vphoneUDID
+        if udid == nil {
+            udid = await resolveVphoneUDID().0
+            vphoneUDID = udid
+        }
+        guard let udid else { return false }
+
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        p.arguments     = ["pymobiledevice3", "usbmux", "forward", "2222", "22"]
+        p.arguments     = ["pymobiledevice3", "usbmux", "forward", "2222", "22", "--udid", udid]
         p.environment   = enrichedEnvironment
         // Assign only on success so forwardProcess never holds a ref to a process that
         // failed to launch (#5)
-        do { try p.run(); forwardProcess = p } catch {}
+        do {
+            try p.run()
+            forwardProcess = p
+        } catch {
+            return false
+        }
 
-        try? await Task.sleep(for: .milliseconds(1500))
+        for _ in 0..<20 {
+            guard p.isRunning else { break }
+            if await run(args: ["nc", "-z", "-w", "1", "127.0.0.1", "2222"]) {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+
+        if p.isRunning { p.terminate() }
+        if forwardProcess === p { forwardProcess = nil }
+        return false
     }
 }

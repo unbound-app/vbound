@@ -6,7 +6,6 @@ import UniformTypeIdentifiers
 import Combine
 
 private let defaultWindowSize = NSSize(width: 720, height: 560)
-private let minimumWindowSize = NSSize(width: 620, height: 460)
 
 private enum WorkspaceSection: String, CaseIterable, Identifiable {
     case logs, shell
@@ -26,6 +25,99 @@ private enum LogScope: String, CaseIterable, Identifiable {
         case .unbound: return "Unbound"
         case .reactNative: return "React Native"
         case .all: return "All"
+        }
+    }
+}
+
+private enum NativeSegmentImage {
+    case asset(String)
+    case system(String)
+    case none
+}
+
+private struct NativeSegmentItem<Selection: Hashable> {
+    let value: Selection
+    let title: String
+    let image: NativeSegmentImage
+    let showsTitle: Bool
+
+    init(
+        _ value: Selection,
+        _ title: String,
+        image: NativeSegmentImage = .none,
+        showsTitle: Bool = true
+    ) {
+        self.value = value
+        self.title = title
+        self.image = image
+        self.showsTitle = showsTitle
+    }
+}
+
+private struct NativeSegmentedControl<Selection: Hashable>: NSViewRepresentable {
+    @Binding var selection: Selection
+    let items: [NativeSegmentItem<Selection>]
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(selection: $selection, items: items)
+    }
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl()
+        control.trackingMode = .selectOne
+        control.target = context.coordinator
+        control.action = #selector(Coordinator.selectionChanged(_:))
+        control.segmentStyle = .automatic
+        update(control)
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.selection = $selection
+        context.coordinator.items = items
+        update(control)
+    }
+
+    private func update(_ control: NSSegmentedControl) {
+        control.segmentCount = items.count
+        for (index, item) in items.enumerated() {
+            control.setLabel(item.showsTitle ? item.title : "", forSegment: index)
+            control.setImage(image(for: item), forSegment: index)
+            control.setImageScaling(.scaleProportionallyDown, forSegment: index)
+            control.setEnabled(true, forSegment: index)
+        }
+        control.selectedSegment = items.firstIndex { $0.value == selection } ?? -1
+    }
+
+    private func image(for item: NativeSegmentItem<Selection>) -> NSImage? {
+        let image: NSImage?
+        switch item.image {
+        case .asset(let assetName):
+            image = NSImage(named: assetName)?.copy() as? NSImage
+        case .system(let systemName):
+            image = NSImage(
+                systemSymbolName: systemName,
+                accessibilityDescription: item.title
+            )?.withSymbolConfiguration(.init(pointSize: 11, weight: .regular))
+        case .none:
+            image = nil
+        }
+        image?.isTemplate = true
+        return image
+    }
+
+    final class Coordinator: NSObject {
+        var selection: Binding<Selection>
+        var items: [NativeSegmentItem<Selection>]
+
+        init(selection: Binding<Selection>, items: [NativeSegmentItem<Selection>] = []) {
+            self.selection = selection
+            self.items = items
+        }
+
+        @objc func selectionChanged(_ sender: NSSegmentedControl) {
+            guard items.indices.contains(sender.selectedSegment) else { return }
+            selection.wrappedValue = items[sender.selectedSegment].value
         }
     }
 }
@@ -63,6 +155,7 @@ struct ContentView: View {
     @State private var showShutdownConfirm  = false
     @State private var shellInput           = ""
     @State private var shellScrollVersion   = 0
+    @State private var shellAutoScroll      = true
     @State private var unboundUnread     : UnreadLevel = .none
     @State private var reactNativeUnread : UnreadLevel = .none
     @State private var shellHistory      : [String] = []
@@ -73,12 +166,7 @@ struct ContentView: View {
 
     var body: some View {
         logsSection
-        .frame(
-            minWidth: minimumWindowSize.width,
-            idealWidth: defaultWindowSize.width,
-            minHeight: minimumWindowSize.height,
-            idealHeight: defaultWindowSize.height
-        )
+        .frame(width: defaultWindowSize.width, height: defaultWindowSize.height)
         .overlay(alignment: .bottom) {
             if manager.buildPhase.isActive {
                 buildProgressOverlay
@@ -167,20 +255,20 @@ struct ContentView: View {
     // volume directly into the `body` modifier chain pushed SwiftUI's type-checker over
     // its "reasonable time" budget for the whole (already large) expression tree.
     private func configureWindow(_ window: NSWindow) {
-        window.styleMask.insert(.resizable)
-        window.standardWindowButton(.zoomButton)?.isEnabled = true
-        window.contentMinSize = minimumWindowSize
-        window.contentMaxSize = NSSize(width: 1200, height: 1000)
+        window.styleMask.remove(.resizable)
+        window.standardWindowButton(.zoomButton)?.isEnabled = false
+        window.contentMinSize = defaultWindowSize
+        window.contentMaxSize = defaultWindowSize
+        window.setContentSize(defaultWindowSize)
         window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = false
+        window.titlebarSeparatorStyle = .line
         window.level = .floating
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         // Only matters when auto-attach is off (positionBeside overrides the origin every
         // poll tick otherwise) — restores wherever the window was last manually dragged to
         // instead of resetting to the default placement on every relaunch.
         window.setFrameAutosaveName("vboundMainWindow")
-        if window.contentView?.frame.width ?? 0 < minimumWindowSize.width {
-            window.setContentSize(defaultWindowSize)
-        }
         manager.ourWindow = window
         // Replace window delegate with a proxy that quits on close.
         // windowShouldClose intercepts SwiftUI's hide-instead-of-close behaviour;
@@ -237,42 +325,133 @@ struct ContentView: View {
             deviceMenu
         }
 
-        ToolbarItem(placement: .principal) {
+        ToolbarItem(placement: .navigation) {
             Picker("Workspace", selection: workspaceSelection) {
                 ForEach(WorkspaceSection.allCases) { section in
-                    Label(section.label, systemImage: section.icon)
+                    Image(systemName: section.icon)
                         .tag(section)
                 }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 190)
+            .frame(width: 56)
+            .accessibilityLabel("Workspace")
         }
 
-        ToolbarItemGroup(placement: .primaryAction) {
-            quickActions
+        if activeTab == .shell {
+            shellActionToolbar
+        } else {
+            quickActionToolbar
+        }
+    }
 
+    @ToolbarContentBuilder
+    private var quickActionToolbar: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            discordQuickAction
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            tweakQuickAction
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            addonsQuickAction
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            mountQuickAction
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            settingsQuickAction
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var shellActionToolbar: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
             Button {
-                if manager.vphoneDetected {
-                    showShutdownConfirm = true
-                } else {
-                    manager.bootVphone(in: vphoneCliPath)
-                }
+                manager.sendShellControlBytes([0x03])
             } label: {
-                Image(systemName: manager.vphoneDetected ? "stop.fill" : "power")
+                HStack(spacing: 5) {
+                Image(systemName: "stop.circle")
+                Text("Interrupt")
             }
-            .disabled(manager.isBooting || (!manager.vphoneDetected && !pathValid(vphoneCliPath)))
-            .help(manager.vphoneDetected ? "Shut down vphone" : bootHelpText)
-            .confirmationDialog("Shut down vphone?", isPresented: $showShutdownConfirm) {
-                Button("Shut Down", role: .destructive) { manager.shutdownVphone() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                if manager.buildPhase.isRunning {
-                    Text("A build is currently in progress. Shutting down now will interrupt it.")
-                } else {
-                    Text("This will power off the virtual phone.")
+                .padding(.horizontal, 2)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .disabled(!manager.isShellConnected)
+            .help("Send Ctrl+C")
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                copyShellOutput()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "doc.on.doc")
+                    Text("Copy")
                 }
+                .padding(.horizontal, 2)
             }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .disabled(manager.shellLines.isEmpty)
+            .help("Copy shell output")
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                clearConsole()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "trash")
+                    Text("Clear")
+                }
+                .padding(.horizontal, 2)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .disabled(manager.shellLines.isEmpty)
+            .help("Clear terminal output")
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                saveVisibleOutputToFile()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "square.and.arrow.down")
+                    Text("Export")
+                }
+                .padding(.horizontal, 2)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .disabled(manager.shellLines.isEmpty)
+            .help("Export shell output")
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            settingsQuickAction
         }
     }
 
@@ -292,6 +471,16 @@ struct ContentView: View {
 
     private var deviceMenu: some View {
         Menu {
+            if manager.vphoneDetected {
+                Button("Shut Down vphone", role: .destructive) {
+                    showShutdownConfirm = true
+                }
+            } else {
+                Button("Boot vphone") {
+                    manager.bootVphone(in: vphoneCliPath)
+                }
+                .disabled(manager.isBooting || !pathValid(vphoneCliPath))
+            }
             if manager.isMounted {
                 Button("Reveal in Finder") { manager.revealMountInFinder() }
             }
@@ -302,88 +491,139 @@ struct ContentView: View {
                     NSPasteboard.general.setString(udid, forType: .string)
                 }
             }
-            Divider()
-            Button("Settings…") { openSettings() }
-                .keyboardShortcut(",", modifiers: .command)
         } label: {
             HStack(spacing: 6) {
                 Circle()
                     .fill(manager.vphoneDetected ? Color.green : Color.secondary.opacity(0.35))
                     .frame(width: 8, height: 8)
                 Text(statusText)
+                    .font(.system(size: 11))
             }
         }
         .help(statusHelpText)
+        .confirmationDialog("Shut down vphone?", isPresented: $showShutdownConfirm) {
+            Button("Shut Down", role: .destructive) { manager.shutdownVphone() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if manager.buildPhase.isRunning {
+                Text("A build is currently in progress. Shutting down now will interrupt it.")
+            } else {
+                Text("This will power off the virtual phone.")
+            }
+        }
     }
 
-    private var quickActions: some View {
-        ControlGroup {
-            Button {
-                logAutoScroll = true
-                manager.toggleTweakBuild(in: unboundPath)
-            } label: {
+    private var tweakQuickAction: some View {
+        Button {
+            logAutoScroll = true
+            manager.toggleTweakBuild(in: unboundPath)
+        } label: {
+            HStack(spacing: 5) {
                 Image(systemName: manager.buildPhase.isRunning && manager.activeBuildTarget == .tweak
                       ? "xmark"
                       : "hammer.fill")
+                Text(manager.buildPhase.isRunning && manager.activeBuildTarget == .tweak ? "Cancel" : "Tweak")
             }
-            .disabled(manager.buildPhase.isRunning
-                      ? manager.activeBuildTarget != .tweak
-                      : !pathValid(unboundPath))
-            .help(tweakActionHelpText)
+            .padding(.horizontal, 2)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .disabled(manager.buildPhase.isRunning
+                  ? manager.activeBuildTarget != .tweak
+                  : !pathValid(unboundPath))
+        .help(tweakActionHelpText)
+    }
 
-            Button {
-                logAutoScroll = true
-                manager.toggleAddonsBuild(in: unboundPluginsPath)
-            } label: {
+    private var addonsQuickAction: some View {
+        Button {
+            logAutoScroll = true
+            manager.toggleAddonsBuild(in: unboundPluginsPath)
+        } label: {
+            HStack(spacing: 5) {
                 Image(systemName: manager.buildPhase.isRunning && manager.activeBuildTarget == .plugins
                       ? "xmark"
                       : "puzzlepiece.extension.fill")
+                Text(manager.buildPhase.isRunning && manager.activeBuildTarget == .plugins ? "Cancel" : "Addons")
             }
-            .disabled(manager.buildPhase.isRunning
-                      ? manager.activeBuildTarget != .plugins
-                      : !pathValid(unboundPluginsPath))
-            .help(addonsActionHelpText)
+            .padding(.horizontal, 2)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .disabled(manager.buildPhase.isRunning
+                  ? manager.activeBuildTarget != .plugins
+                  : !pathValid(unboundPluginsPath))
+        .help(addonsActionHelpText)
+    }
 
-            Button {
-                logAutoScroll = true
-                manager.launchDiscord()
-            } label: {
+    private var discordQuickAction: some View {
+        Button {
+            logAutoScroll = true
+            manager.launchDiscord()
+        } label: {
+            HStack(spacing: 5) {
                 Image("Discord")
                     .renderingMode(.template)
+                Text("Discord")
             }
-            .disabled(!manager.vphoneDetected || manager.isLaunchingDiscord)
-            .help(manager.discordLaunchFailed
-                  ? "Discord relaunch failed — check the device password in Settings"
-                  : "Relaunch Discord")
-            .overlay(alignment: .topTrailing) {
-                if manager.discordLaunchFailed {
-                    Circle()
-                        .fill(Color.red)
-                        .frame(width: 5, height: 5)
-                        .offset(x: 2, y: -2)
-                }
-            }
-
-            Button {
-                if manager.isMounted {
-                    manager.unmountVphone()
-                } else {
-                    manager.mountVphone()
-                }
-            } label: {
-                Image(systemName: manager.isMounted ? "externaldrive.fill" : "externaldrive")
-            }
-            .disabled(manager.isMounting || (!manager.isMounted && !manager.sshfsAvailable))
-            .help(mountActionHelpText)
-            .overlay(alignment: .topTrailing) {
-                if manager.lastMountError != nil, !manager.isMounted, !manager.isMounting {
-                    Circle()
-                        .fill(Color.red)
-                        .frame(width: 5, height: 5)
-                        .offset(x: 2, y: -2)
-                }
+            .padding(.horizontal, 2)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .disabled(!manager.vphoneDetected || manager.isLaunchingDiscord)
+        .help(manager.discordLaunchFailed
+              ? "Discord relaunch failed — check the device password in Settings"
+              : "Relaunch Discord")
+        .overlay(alignment: .topTrailing) {
+            if manager.discordLaunchFailed {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 5, height: 5)
+                    .offset(x: 2, y: -2)
             }
         }
+    }
+
+    private var mountQuickAction: some View {
+        Button {
+            if manager.isMounted {
+                manager.unmountVphone()
+            } else {
+                manager.mountVphone()
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: manager.isMounted ? "externaldrive.fill" : "externaldrive")
+                Text(manager.isMounted ? "Unmount" : "Mount")
+            }
+            .padding(.horizontal, 2)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .disabled(manager.isMounting || (!manager.isMounted && !manager.sshfsAvailable))
+        .help(mountActionHelpText)
+        .overlay(alignment: .topTrailing) {
+            if manager.lastMountError != nil, !manager.isMounted, !manager.isMounting {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 5, height: 5)
+                    .offset(x: 2, y: -2)
+            }
+        }
+    }
+
+    private var settingsQuickAction: some View {
+        Button {
+            openSettings()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "gearshape")
+                Text("Settings")
+            }
+            .padding(.horizontal, 2)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .help("Open Settings")
     }
 
     @ViewBuilder
@@ -408,7 +648,7 @@ struct ContentView: View {
             failedResultRow(message: manager.buildPhase.label)
         default:
             VStack(alignment: .leading, spacing: 3) {
-                if case .building = manager.buildPhase {
+                if manager.buildPhase == .building || manager.buildPhase == .deployingPlugins {
                     ProgressView(value: manager.buildProgress).progressViewStyle(.linear)
                 } else {
                     ProgressView().progressViewStyle(.linear)
@@ -481,21 +721,12 @@ struct ContentView: View {
         Group {
             if activeTab == .shell {
                 VStack(spacing: 0) {
-                    shellView
-                    Divider()
-                    shellStatusBar
-                }
-                .transition(.opacity)
-            } else {
-                VStack(spacing: 0) {
-                    logFilterBar
-                    Divider()
                     ZStack(alignment: .bottomTrailing) {
-                        logScrollView
-                        if !logAutoScroll, !filteredEntries.isEmpty {
+                        shellView
+                        if !shellAutoScroll {
                             Button {
-                                logAutoScroll = true
-                                scrollVersion += 1
+                                shellAutoScroll = true
+                                shellScrollVersion += 1
                             } label: {
                                 Label("Jump to Latest", systemImage: "arrow.down.to.line")
                             }
@@ -506,6 +737,30 @@ struct ContentView: View {
                         }
                     }
                     Divider()
+                    shellStatusBar
+                }
+                .transition(.opacity)
+            } else {
+                VStack(spacing: 0) {
+                    logFilterBar
+                    Divider()
+                    logScrollView
+                        .overlay(alignment: .bottomTrailing) {
+                        if !logAutoScroll, !filteredEntries.isEmpty {
+                            Button {
+                                logAutoScroll = true
+                                scrollVersion += 1
+                            } label: {
+                                Label("Jump to Latest", systemImage: "arrow.down.to.line")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .padding(16)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                    }
+                    .clipped()
+                    Divider()
                     logStatusBar
                 }
                 .transition(.opacity)
@@ -513,11 +768,14 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.16), value: activeTab == .shell)
         .animation(.easeInOut(duration: 0.16), value: logAutoScroll)
+        .animation(.easeInOut(duration: 0.16), value: shellAutoScroll)
         .onChange(of: activeTab) { _, new in
             if new == .shell, !manager.isShellConnected {
+                shellAutoScroll = true
                 manager.connectShell()
             }
         }
+        .background(Color(nsColor: .textBackgroundColor))
     }
 
     private var logFilterBar: some View {
@@ -542,22 +800,26 @@ struct ContentView: View {
     }
 
     private var logScopePicker: some View {
-        Picker("Source", selection: logScopeSelection) {
-            ForEach(LogScope.allCases) { scope in
-                HStack(spacing: 4) {
-                    Text(scope.label)
-                    if unreadLevel(for: scope) != .none {
-                        Circle()
-                            .fill(unreadLevel(for: scope) == .error ? Color.red : Color.blue)
-                            .frame(width: 5, height: 5)
-                    }
-                }
-                .tag(scope)
-            }
+        NativeSegmentedControl(
+            selection: logScopeSelection,
+            items: [
+                NativeSegmentItem(.unbound, logScopeTitle(.unbound), image: .asset("Unbound")),
+                NativeSegmentItem(.reactNative, logScopeTitle(.reactNative), image: .asset("React Native")),
+                NativeSegmentItem(.all, logScopeTitle(.all))
+            ]
+        )
+        .frame(width: 284)
+        .padding(.leading, 6)
+        .accessibilityLabel("Source")
+    }
+
+    private func logScopeTitle(_ scope: LogScope) -> String {
+        switch unreadLevel(for: scope) {
+        case .none:
+            return scope.label
+        case .info, .error:
+            return "\(scope.label) •"
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 260)
     }
 
     private var logSearchField: some View {
@@ -628,12 +890,12 @@ struct ContentView: View {
 
     private var logLevelFilters: some View {
         HStack(spacing: 5) {
+            LevelFilter(label: "DBG", on: $showDBG, color: .secondary)
+                .help("Show or hide Debug messages")
             LevelFilter(label: "INF", on: $showINF, color: .blue)
                 .help("Show or hide Info messages")
             LevelFilter(label: "ERR", on: $showERR, color: .red)
                 .help("Show or hide Error messages")
-            LevelFilter(label: "DBG", on: $showDBG, color: .secondary)
-                .help("Show or hide Debug messages")
         }
         .fixedSize()
     }
@@ -896,25 +1158,34 @@ struct ContentView: View {
                             .font(.system(size: 11, design: .monospaced))
                             .textSelection(.enabled)
                             .fixedSize(horizontal: true, vertical: true)
-                            .frame(minWidth: minimumWindowSize.width - 32, alignment: .topLeading)
+                            .frame(minWidth: defaultWindowSize.width - 16, alignment: .topLeading)
                             .padding(.horizontal, 8)
                         Color.clear.frame(height: 1).id("shellBottom")
                     }
                     .padding(.vertical, 4)
                 }
-                .defaultScrollAnchor(.bottom)
+                .defaultScrollAnchor(.bottomLeading)
                 .background(Color.black)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .onTapGesture { shellInputFocused = true }
                 .onChange(of: manager.shellLines.count) { _, _ in
-                    proxy.scrollTo("shellBottom", anchor: .bottomLeading)
+                    if shellAutoScroll {
+                        proxy.scrollTo("shellBottom", anchor: .bottomLeading)
+                    }
                 }
                 .onChange(of: manager.shellLines.last) { _, _ in
-                    proxy.scrollTo("shellBottom", anchor: .bottomLeading)
+                    if shellAutoScroll {
+                        proxy.scrollTo("shellBottom", anchor: .bottomLeading)
+                    }
                 }
                 .onChange(of: shellScrollVersion) { _, _ in
                     proxy.scrollTo("shellBottom", anchor: .bottomLeading)
+                }
+                .onScrollGeometryChange(for: Bool.self) { geometry in
+                    geometry.visibleRect.maxY >= geometry.contentSize.height - 2
+                } action: { _, isAtBottom in
+                    shellAutoScroll = isAtBottom
                 }
             }
 
@@ -986,26 +1257,6 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
 
             Spacer()
-
-            Button {
-                shellScrollVersion += 1
-            } label: {
-                Image(systemName: "arrow.down.to.line")
-            }
-            .buttonStyle(.plain)
-            .help("Jump to latest output")
-
-            Button(manager.isShellConnected ? "Disconnect" : "Connect") {
-                if manager.isShellConnected {
-                    manager.disconnectShell()
-                } else {
-                    manager.connectShell()
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .tint(manager.isShellConnected ? .red : Color.accentColor)
-            .disabled(manager.isShellConnecting)
         }
         .font(.system(size: 11))
         .padding(.horizontal, 12)

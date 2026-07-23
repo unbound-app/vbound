@@ -93,7 +93,11 @@ extension AppController {
                 isMounting = false; isMounted = true
                 return
             }
-            await ensurePortForward()
+            guard await ensurePortForward() else {
+                isMounting = false
+                lastMountError = "Could not connect to vphone over SSH"
+                return
+            }
             // Best-effort: if this fails (no sudo, path doesn't exist on this JB variant,
             // ...) the mount still proceeds as mobile, same as before this existed.
             _ = await ensureRootSFTPSudoers()
@@ -113,6 +117,10 @@ extension AppController {
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "UserKnownHostsFile=/dev/null",
                 "-o", "PubkeyAuthentication=no",
+                "-o", "ConnectTimeout=5",
+                "-o", "ControlMaster=auto",
+                "-o", "ControlPath=\(AppController.sshControlPath)",
+                "-o", "ControlPersist=60",
                 "-o", "reconnect",
                 "-o", "ServerAliveInterval=15",
                 "-o", "ServerAliveCountMax=3",
@@ -139,7 +147,7 @@ extension AppController {
                 return
             }
 
-            for _ in 0..<25 {  // ~5s at 200ms — sshfs attaches almost immediately once it does
+            for _ in 0..<75 {
                 if await isPathMounted(AppController.mountPath) {
                     isMounting = false; isMounted = true
                     errPipe.fileHandleForReading.readabilityHandler = nil
@@ -150,6 +158,8 @@ extension AppController {
             isMounting = false
             isMounted = false
             errPipe.fileHandleForReading.readabilityHandler = nil
+            if p.isRunning { p.terminate() }
+            if mountProcess === p { mountProcess = nil }
             let captured = errBox.text.trimmingCharacters(in: .whitespacesAndNewlines)
             lastMountError = captured.isEmpty ? "sshfs didn't attach — check that macFUSE is installed and the mount isn't already stale" : captured
         }
