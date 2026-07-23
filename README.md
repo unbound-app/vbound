@@ -5,7 +5,7 @@
 
 macOS-native workspace that attaches to the vphone window and streamlines Unbound development: boot the virtual device, deploy the tweak and addons over SSH, stream live device logs, and work in an integrated shell.
 
-![vbound](https://adriancastro.dev/96557kk9tr3z.png)
+![vbound](https://adriancastro.dev/oy6sh0hsxifo.png)
 
 ## Requirements
 
