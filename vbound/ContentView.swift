@@ -3,8 +3,32 @@ import AppKit
 import AppUpdater
 import Version
 import UniformTypeIdentifiers
+import Combine
 
-private let cardSize = NSSize(width: 600, height: 505)
+private let defaultWindowSize = NSSize(width: 720, height: 560)
+private let minimumWindowSize = NSSize(width: 620, height: 460)
+
+private enum WorkspaceSection: String, CaseIterable, Identifiable {
+    case logs, shell
+
+    var id: String { rawValue }
+    var label: String { self == .logs ? "Logs" : "Shell" }
+    var icon: String { self == .logs ? "text.alignleft" : "terminal" }
+}
+
+private enum LogScope: String, CaseIterable, Identifiable {
+    case unbound, reactNative, all
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .unbound: return "Unbound"
+        case .reactNative: return "React Native"
+        case .all: return "All"
+        }
+    }
+}
 
 struct ContentView: View {
     @Environment(AppController.self) var manager
@@ -25,6 +49,7 @@ struct ContentView: View {
     @AppStorage("accentColorChoice") private var accentColorChoice = AccentChoice.system.rawValue
     @State private var bookmarkedIDs: Set<LogEntry.ID> = []
     @State private var scrollToBookmarkID: LogEntry.ID? = nil
+    @State private var showBookmarks = false
     @State private var showCommandPalette = false
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var showOnboarding = false
@@ -32,6 +57,7 @@ struct ContentView: View {
     // sticky "stay off forever" preference (#18).
     @State private var logAutoScroll     = true
     @State private var activeTab         : LogTab = .unbound
+    @State private var lastLogTab        : LogTab = .unbound
     @AppStorage("logsMerged") private var logsMerged = false
     @State private var scrollVersion        = 0
     @State private var showShutdownConfirm  = false
@@ -46,12 +72,13 @@ struct ContentView: View {
     @FocusState private var logSearchFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            statusStrip
-            Divider()
-            logsSection
-        }
-        .frame(width: cardSize.width, height: cardSize.height)
+        logsSection
+        .frame(
+            minWidth: minimumWindowSize.width,
+            idealWidth: defaultWindowSize.width,
+            minHeight: minimumWindowSize.height,
+            idealHeight: defaultWindowSize.height
+        )
         .overlay(alignment: .bottom) {
             if manager.buildPhase.isActive {
                 buildProgressOverlay
@@ -61,6 +88,7 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.25), value: manager.buildPhase.isActive)
         .tint(AccentChoice(rawValue: accentColorChoice)?.color)
         .background(WindowAccessor(callback: configureWindow))
+        .toolbar { windowToolbar }
         .onAppear {
             guard !hasCompletedOnboarding else { return }
             showOnboarding = true
@@ -83,6 +111,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showOnboardingChecklist)) { _ in
             showOnboarding = true
         }
+        .onReceive(consoleNotifications, perform: handleConsoleNotification)
         .onChange(of: manager.logLines.count) { old, new in
             let delta = new - old
             guard delta > 0 else { return }
@@ -106,6 +135,7 @@ struct ContentView: View {
                 if logsMerged { reactNativeUnread = .none }
             }
             if new == .reactNative { reactNativeUnread = .none }
+            if new != .shell { lastLogTab = new }
         }
         .onChange(of: logSearch) { _, _ in searchMatchIndex = 0 }
         .overlay {
@@ -137,20 +167,20 @@ struct ContentView: View {
     // volume directly into the `body` modifier chain pushed SwiftUI's type-checker over
     // its "reasonable time" budget for the whole (already large) expression tree.
     private func configureWindow(_ window: NSWindow) {
-        window.styleMask.remove(.resizable)
-        // There's no "zoomable" style mask to remove — the button itself has to be
-        // disabled directly, otherwise it stays clickable-looking even though
-        // contentMinSize == contentMaxSize means zooming can't change anything.
-        window.standardWindowButton(.zoomButton)?.isEnabled = false
-        window.contentMinSize = cardSize
-        window.contentMaxSize = cardSize
-        window.setContentSize(cardSize)
+        window.styleMask.insert(.resizable)
+        window.standardWindowButton(.zoomButton)?.isEnabled = true
+        window.contentMinSize = minimumWindowSize
+        window.contentMaxSize = NSSize(width: 1200, height: 1000)
+        window.titleVisibility = .hidden
         window.level = .floating
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         // Only matters when auto-attach is off (positionBeside overrides the origin every
         // poll tick otherwise) — restores wherever the window was last manually dragged to
         // instead of resetting to the default placement on every relaunch.
         window.setFrameAutosaveName("vboundMainWindow")
+        if window.contentView?.frame.width ?? 0 < minimumWindowSize.width {
+            window.setContentSize(defaultWindowSize)
+        }
         manager.ourWindow = window
         // Replace window delegate with a proxy that quits on close.
         // windowShouldClose intercepts SwiftUI's hide-instead-of-close behaviour;
@@ -166,68 +196,62 @@ struct ContentView: View {
         manager.start()
     }
 
-    // MARK: - Status strip (status + all primary actions, one line)
+    private var consoleNotifications: Publishers.MergeMany<NotificationCenter.Publisher> {
+        Publishers.MergeMany([
+            NotificationCenter.default.publisher(for: .showLogs),
+            NotificationCenter.default.publisher(for: .showShell),
+            NotificationCenter.default.publisher(for: .clearConsole),
+            NotificationCenter.default.publisher(for: .copyVisibleOutput),
+            NotificationCenter.default.publisher(for: .exportVisibleOutput),
+            NotificationCenter.default.publisher(for: .jumpToLatest)
+        ])
+    }
 
-    @ViewBuilder
-    private var statusStrip: some View {
-        HStack(spacing: 7) {
-            Circle()
-                .fill(manager.vphoneDetected ? Color.green : Color.secondary.opacity(0.3))
-                .frame(width: 8, height: 8)
-                .animation(.easeInOut(duration: 0.2), value: manager.vphoneDetected)
-            Text(statusText)
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .help(statusHelpText)
-                .contextMenu {
-                    if let udid = manager.vphoneUDID {
-                        Button("Copy UDID") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(udid, forType: .string)
-                        }
-                    }
-                }
+    private func handleConsoleNotification(_ notification: Notification) {
+        switch notification.name {
+        case .showLogs:
+            if activeTab == .shell { activeTab = lastLogTab }
+        case .showShell:
+            activeTab = .shell
+        case .clearConsole:
+            clearConsole()
+        case .copyVisibleOutput:
+            if activeTab == .shell { copyShellOutput() } else { copyLogs() }
+        case .exportVisibleOutput:
+            saveVisibleOutputToFile()
+        case .jumpToLatest:
+            if activeTab == .shell {
+                shellScrollVersion += 1
+            } else {
+                logAutoScroll = true
+                scrollVersion += 1
+            }
+        default:
+            break
+        }
+    }
 
-            // Plain icon rather than a bordered button — the action row on the right is
-            // already at capacity for the fixed 600pt width, but this side has slack
-            // (that's what Spacer(minLength:) below is absorbing).
-            Button {
-                if manager.isMounted {
-                    manager.revealMountInFinder()
-                } else {
-                    manager.mountVphone()
-                }
-            } label: {
-                Image(systemName: manager.isMounted ? "folder.fill" : "folder")
-                    .font(.system(size: 12))
-                    .foregroundStyle(manager.isMounted ? Color.green : Color.secondary)
-            }
-            .buttonStyle(.plain)
-            .focusable(false)  // otherwise the window's default focus ring lands here and swallows the glyph
-            .disabled(manager.isMounting || (!manager.isMounted && !manager.sshfsAvailable))
-            .help(mountHelpText)
-            .overlay(alignment: .topTrailing) {
-                if manager.lastMountError != nil, !manager.isMounted, !manager.isMounting {
-                    Circle()
-                        .fill(Color.red)
-                        .frame(width: 6, height: 6)
-                        .offset(x: 2, y: -2)
-                }
-            }
-            .contextMenu {
-                if manager.isMounted {
-                    Button("Unmount") { manager.unmountVphone() }
+    @ToolbarContentBuilder
+    private var windowToolbar: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            deviceMenu
+        }
+
+        ToolbarItem(placement: .principal) {
+            Picker("Workspace", selection: workspaceSelection) {
+                ForEach(WorkspaceSection.allCases) { section in
+                    Label(section.label, systemImage: section.icon)
+                        .tag(section)
                 }
             }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 190)
+        }
 
-            Spacer(minLength: 8)
+        ToolbarItemGroup(placement: .primaryAction) {
+            quickActions
 
-            // One toggling button instead of two permanently-visible ones — Boot and Stop
-            // are never both relevant at once (vphoneDetected gates them oppositely
-            // already), so showing both wasted a full button's worth of width. Mirrors
-            // the Stream/Connect toggles elsewhere: same prominent style throughout,
-            // only the tint swaps.
             Button {
                 if manager.vphoneDetected {
                     showShutdownConfirm = true
@@ -235,110 +259,132 @@ struct ContentView: View {
                     manager.bootVphone(in: vphoneCliPath)
                 }
             } label: {
-                Label(manager.vphoneDetected ? "Stop" : (manager.isBooting ? "Booting…" : "Boot"),
-                      systemImage: manager.vphoneDetected ? "stop.fill" : "power")
+                Image(systemName: manager.vphoneDetected ? "stop.fill" : "power")
             }
-            .buttonStyle(.borderedProminent)
-            .tint(manager.vphoneDetected ? .red : Color.accentColor)
-            .focusable(false)
             .disabled(manager.isBooting || (!manager.vphoneDetected && !pathValid(vphoneCliPath)))
             .help(manager.vphoneDetected ? "Shut down vphone" : bootHelpText)
             .confirmationDialog("Shut down vphone?", isPresented: $showShutdownConfirm) {
                 Button("Shut Down", role: .destructive) { manager.shutdownVphone() }
-                Button("Cancel",    role: .cancel) {}
+                Button("Cancel", role: .cancel) {}
             } message: {
-                // Mirrors the same warning TerminatingWindowDelegate already shows when
-                // quitting mid-build — shutting down vphone is just as destructive to an
-                // in-flight upload/install as quitting the app is.
                 if manager.buildPhase.isRunning {
                     Text("A build is currently in progress. Shutting down now will interrupt it.")
                 } else {
                     Text("This will power off the virtual phone.")
                 }
             }
+        }
+    }
+
+    private var workspaceSelection: Binding<WorkspaceSection> {
+        Binding(
+            get: { activeTab == .shell ? .shell : .logs },
+            set: { section in
+                switch section {
+                case .logs:
+                    if activeTab == .shell { activeTab = lastLogTab }
+                case .shell:
+                    activeTab = .shell
+                }
+            }
+        )
+    }
+
+    private var deviceMenu: some View {
+        Menu {
+            if manager.isMounted {
+                Button("Reveal in Finder") { manager.revealMountInFinder() }
+            }
+            if let udid = manager.vphoneUDID {
+                Divider()
+                Button("Copy Device UDID") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(udid, forType: .string)
+                }
+            }
+            Divider()
+            Button("Settings…") { openSettings() }
+                .keyboardShortcut(",", modifiers: .command)
+        } label: {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(manager.vphoneDetected ? Color.green : Color.secondary.opacity(0.35))
+                    .frame(width: 8, height: 8)
+                Text(statusText)
+            }
+        }
+        .help(statusHelpText)
+    }
+
+    private var quickActions: some View {
+        ControlGroup {
+            Button {
+                logAutoScroll = true
+                manager.toggleTweakBuild(in: unboundPath)
+            } label: {
+                Image(systemName: manager.buildPhase.isRunning && manager.activeBuildTarget == .tweak
+                      ? "xmark"
+                      : "hammer.fill")
+            }
+            .disabled(manager.buildPhase.isRunning
+                      ? manager.activeBuildTarget != .tweak
+                      : !pathValid(unboundPath))
+            .help(tweakActionHelpText)
 
             Button {
-                logAutoScroll = true  // #18 — launching Discord means you want to watch it boot
+                logAutoScroll = true
+                manager.toggleAddonsBuild(in: unboundPluginsPath)
+            } label: {
+                Image(systemName: manager.buildPhase.isRunning && manager.activeBuildTarget == .plugins
+                      ? "xmark"
+                      : "puzzlepiece.extension.fill")
+            }
+            .disabled(manager.buildPhase.isRunning
+                      ? manager.activeBuildTarget != .plugins
+                      : !pathValid(unboundPluginsPath))
+            .help(addonsActionHelpText)
+
+            Button {
+                logAutoScroll = true
                 manager.launchDiscord()
             } label: {
-                Label { Text("Discord") } icon: { Image("Discord") }
+                Image("Discord")
+                    .renderingMode(.template)
             }
-            .buttonStyle(.bordered)
-            .focusable(false)
             .disabled(!manager.vphoneDetected || manager.isLaunchingDiscord)
             .help(manager.discordLaunchFailed
-                  ? "Failed to restart Discord — check the device password in Settings"
-                  : "Launch Discord")
-            // The SSH command is fire-and-forget from the caller's perspective, so without
-            // this a failed restart (bad password, device offline) looked identical to a
-            // successful one — nothing to click, nothing to dismiss, just silence.
+                  ? "Discord relaunch failed — check the device password in Settings"
+                  : "Relaunch Discord")
             .overlay(alignment: .topTrailing) {
                 if manager.discordLaunchFailed {
                     Circle()
                         .fill(Color.red)
-                        .frame(width: 6, height: 6)
+                        .frame(width: 5, height: 5)
                         .offset(x: 2, y: -2)
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: manager.discordLaunchFailed)
 
             Button {
-                if manager.buildPhase.isRunning, manager.activeBuildTarget == .tweak {
-                    manager.cancelBuild()
+                if manager.isMounted {
+                    manager.unmountVphone()
                 } else {
-                    logAutoScroll = true  // #18 — same for a fresh build/install run
-                    manager.buildUnbound(in: unboundPath)
+                    manager.mountVphone()
                 }
             } label: {
-                let isTweakRunning = manager.buildPhase.isRunning && manager.activeBuildTarget == .tweak
-                Label(isTweakRunning ? "Cancel" : "Tweak",
-                      systemImage: isTweakRunning ? "xmark" : "hammer.fill")
+                Image(systemName: manager.isMounted ? "externaldrive.fill" : "externaldrive")
             }
-            .buttonStyle(.bordered)
-            .tint(manager.buildPhase.isRunning && manager.activeBuildTarget == .tweak ? .red : Color.accentColor)
-            .focusable(false)
-            .disabled(manager.buildPhase.isRunning
-                      ? manager.activeBuildTarget != .tweak
-                      : !pathValid(unboundPath))
-            .help(buildHelpText)
-
-            Button {
-                if manager.buildPhase.isRunning, manager.activeBuildTarget == .plugins {
-                    manager.cancelBuild()
-                } else {
-                    logAutoScroll = true
-                    manager.buildPlugins(in: unboundPluginsPath)
+            .disabled(manager.isMounting || (!manager.isMounted && !manager.sshfsAvailable))
+            .help(mountActionHelpText)
+            .overlay(alignment: .topTrailing) {
+                if manager.lastMountError != nil, !manager.isMounted, !manager.isMounting {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 5, height: 5)
+                        .offset(x: 2, y: -2)
                 }
-            } label: {
-                let isAddonsRunning = manager.buildPhase.isRunning && manager.activeBuildTarget == .plugins
-                Label(isAddonsRunning ? "Cancel" : "Addons",
-                      systemImage: isAddonsRunning ? "xmark" : "puzzlepiece.extension.fill")
             }
-            .buttonStyle(.bordered)
-            .tint(manager.buildPhase.isRunning && manager.activeBuildTarget == .plugins ? .red : Color.accentColor)
-            .focusable(false)
-            .disabled(manager.buildPhase.isRunning
-                      ? manager.activeBuildTarget != .plugins
-                      : !pathValid(unboundPluginsPath))
-            .help(addonsHelpText)
-
-            Divider().frame(height: 16)
-
-            Button {
-                openSettings()
-            } label: {
-                Image(systemName: "gearshape")
-            }
-            .buttonStyle(.bordered)
-            .focusable(false)
-            .help("Settings")
         }
-        .controlSize(.regular)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
     }
-
-    // MARK: - Build progress (floats over the bottom of the log/shell area)
 
     @ViewBuilder
     private var buildProgressOverlay: some View {
@@ -430,270 +476,325 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Logs section
-
     @ViewBuilder
     private var logsSection: some View {
-        VStack(spacing: 0) {
-            // Cross-fade between log and shell toolbars
-            ZStack(alignment: .leading) {
-                logToolbar
-                    .opacity(activeTab == .shell ? 0 : 1)
-                    .allowsHitTesting(activeTab != .shell)
-                shellToolbar
-                    .opacity(activeTab == .shell ? 1 : 0)
-                    .allowsHitTesting(activeTab == .shell)
-            }
-            .animation(.easeInOut(duration: 0.25), value: activeTab == .shell)
-
-            Divider()
-
-            HStack(spacing: 10) {
-                if logsMerged {
-                    tabButton(.unbound, icon: Self.mergedIconKey, label: "Logs", unread: allUnread)
-                        .keyboardShortcut("1", modifiers: .command)
-                        .transition(.opacity)
-                } else {
-                    tabButton(.unbound,     icon: "Unbound",      label: "Unbound",      unread: unboundUnread)
-                        .keyboardShortcut("1", modifiers: .command)
-                        .transition(.opacity)
-                    tabButton(.reactNative, icon: "React Native", label: "React Native", unread: reactNativeUnread)
-                        .keyboardShortcut("2", modifiers: .command)
-                        .transition(.opacity)
+        Group {
+            if activeTab == .shell {
+                VStack(spacing: 0) {
+                    shellView
+                    Divider()
+                    shellStatusBar
                 }
-                tabButton(.shell, icon: "terminal", label: "Shell", unread: .none)
-                    .keyboardShortcut("3", modifiers: .command)
+                .transition(.opacity)
+            } else {
+                VStack(spacing: 0) {
+                    logFilterBar
+                    Divider()
+                    ZStack(alignment: .bottomTrailing) {
+                        logScrollView
+                        if !logAutoScroll, !filteredEntries.isEmpty {
+                            Button {
+                                logAutoScroll = true
+                                scrollVersion += 1
+                            } label: {
+                                Label("Jump to Latest", systemImage: "arrow.down.to.line")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .padding(14)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                    }
+                    Divider()
+                    logStatusBar
+                }
+                .transition(.opacity)
             }
-            .animation(.easeInOut(duration: 0.25), value: logsMerged)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 7)
-
-            Divider()
-
-            // Cross-fade between log and shell content
-            ZStack {
-                logScrollView
-                    .opacity(activeTab == .shell ? 0 : 1)
-                    .allowsHitTesting(activeTab != .shell)
-                shellView
-                    .opacity(activeTab == .shell ? 1 : 0)
-                    .allowsHitTesting(activeTab == .shell)
-            }
-            .animation(.easeInOut(duration: 0.25), value: activeTab == .shell)
         }
+        .animation(.easeInOut(duration: 0.16), value: activeTab == .shell)
+        .animation(.easeInOut(duration: 0.16), value: logAutoScroll)
         .onChange(of: activeTab) { _, new in
-            if new == .shell, !manager.isShellConnected { manager.connectShell() }
+            if new == .shell, !manager.isShellConnected {
+                manager.connectShell()
+            }
         }
     }
 
-    @ViewBuilder
-    private var logToolbar: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 5) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.tertiary)
-                    .font(.system(size: 12))
-                TextField("Filter…", text: $logSearch)
-                    .font(.system(size: 12))
-                    .textFieldStyle(.plain)
-                    .focused($logSearchFocused)
-                    .onSubmit { jumpToNextMatch() }
-                    .onKeyPress { press in
-                        // Escape mirrors the standard Safari/Xcode find-bar convention:
-                        // clear the query first, then (now that there's nothing left to
-                        // clear) drop focus out of the field on a second press.
-                        if press.key == .escape {
-                            if !logSearch.isEmpty { logSearch = "" } else { logSearchFocused = false }
-                            return .handled
-                        }
-                        // ⌘G / ⇧⌘G jump between search matches while the filter field
-                        // has focus — matches are already highlighted, but there was no
-                        // way to step between them without scrolling by hand.
-                        guard press.characters.lowercased() == "g",
-                              press.modifiers.contains(.command) else { return .ignored }
-                        if press.modifiers.contains(.shift) { jumpToPreviousMatch() }
-                        else                                { jumpToNextMatch() }
+    private var logFilterBar: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                logScopePicker
+                logSearchField
+                logLevelFilters
+            }
+            VStack(spacing: 8) {
+                HStack(spacing: 12) {
+                    logScopePicker
+                    Spacer()
+                    logLevelFilters
+                }
+                logSearchField
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(.bar)
+    }
+
+    private var logScopePicker: some View {
+        Picker("Source", selection: logScopeSelection) {
+            ForEach(LogScope.allCases) { scope in
+                HStack(spacing: 4) {
+                    Text(scope.label)
+                    if unreadLevel(for: scope) != .none {
+                        Circle()
+                            .fill(unreadLevel(for: scope) == .error ? Color.red : Color.blue)
+                            .frame(width: 5, height: 5)
+                    }
+                }
+                .tag(scope)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 260)
+    }
+
+    private var logSearchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: logFilterRegex ? "textformat.alt" : "magnifyingglass")
+                .foregroundStyle(logFilterRegex ? Color.accentColor : Color.secondary)
+                .font(.system(size: 12))
+
+            TextField("Search logs", text: $logSearch)
+                .font(.system(size: 12))
+                .textFieldStyle(.plain)
+                .focused($logSearchFocused)
+                .onSubmit { jumpToNextMatch() }
+                .onKeyPress { press in
+                    if press.key == .escape {
+                        if !logSearch.isEmpty { logSearch = "" } else { logSearchFocused = false }
                         return .handled
                     }
-                if !logSearch.isEmpty {
-                    Text(matchCountLabel)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                        .monospacedDigit()
-                    Button { jumpToPreviousMatch() } label: {
-                        Image(systemName: "chevron.up")
-                            .foregroundStyle(.tertiary)
-                            .font(.system(size: 10, weight: .bold))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(searchMatches.isEmpty)
-                    .help("Previous match (⇧⌘G)")
-                    Button { jumpToNextMatch() } label: {
-                        Image(systemName: "chevron.down")
-                            .foregroundStyle(.tertiary)
-                            .font(.system(size: 10, weight: .bold))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(searchMatches.isEmpty)
-                    .help("Next match (⌘G)")
-                    Button { logSearch = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.tertiary)
-                            .font(.system(size: 12))
-                    }
-                    .buttonStyle(.plain)
+                    guard press.characters.lowercased() == "g",
+                          press.modifiers.contains(.command) else { return .ignored }
+                    if press.modifiers.contains(.shift) { jumpToPreviousMatch() }
+                    else { jumpToNextMatch() }
+                    return .handled
                 }
-            }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 4)
-            .background(Color(.controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(Color.secondary.opacity(0.25), lineWidth: 0.5)
-            )
 
-            LevelFilter(label: "INF", on: $showINF, color: .blue)
-                .help("Show/hide Info messages")
-            LevelFilter(label: "ERR", on: $showERR, color: .red)
-                .help("Show/hide Error messages")
-            LevelFilter(label: "DBG", on: $showDBG, color: .secondary)
-                .help("Show/hide Debug messages")
+            if !logSearch.isEmpty {
+                Text(matchCountLabel)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
 
-            Divider().frame(height: 16)
-
-            LevelFilter(label: "MERGE", on: $logsMerged, color: .purple)
-                .help("Merge Unbound and React Native into one combined view")
-
-            Divider().frame(height: 16)
-
-            Group {
-                // ⌘K only while a log tab is showing — the shell toolbar's Clear button
-                // claims the same shortcut while Shell is active, so exactly one of the
-                // two is ever attached at a time (both toolbars stay mounted underneath
-                // the cross-fade, so having both claim it unconditionally would be
-                // ambiguous). Mirrors Terminal.app's own ⌘K-clears-buffer convention.
-                if activeTab != .shell {
-                    Button { manager.logLines = [] } label: {
-                        Image(systemName: "trash")
-                    }
-                    .keyboardShortcut("k", modifiers: .command)
-                } else {
-                    Button { manager.logLines = [] } label: {
-                        Image(systemName: "trash")
-                    }
+                Button { jumpToPreviousMatch() } label: {
+                    Image(systemName: "chevron.up")
                 }
-            }
-            .buttonStyle(.borderless)
-            .font(.system(size: 14))
-            .help("Clear all logs")
+                .disabled(searchMatches.isEmpty)
+                .help("Previous match (⇧⌘G)")
 
-            Group {
-                Button { copyLogs() } label: {
-                    Image(systemName: "doc.on.doc")
+                Button { jumpToNextMatch() } label: {
+                    Image(systemName: "chevron.down")
                 }
-                .help("Copy visible logs to clipboard")
+                .disabled(searchMatches.isEmpty)
+                .help("Next match (⌘G)")
 
-                // #18 — persistent auto-follow toggle: disengages the moment the user
-                // scrolls or clicks into the log view (see LogTextView's onUserInteraction),
-                // so reading older entries doesn't keep getting yanked back to the bottom.
-                // Re-engaging jumps straight to the newest entry, same as the old
-                // dedicated "scroll to newest" button this replaced.
-                Button {
-                    logAutoScroll.toggle()
-                    guard logAutoScroll else { return }
-                    scrollVersion += 1
-                } label: {
-                    Image(systemName: logAutoScroll ? "pin.fill" : "pin.slash")
+                Button { logSearch = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
                 }
-                .foregroundStyle(logAutoScroll ? Color.accentColor : Color.secondary)
-                .help(logAutoScroll
-                      ? "Auto-scroll to newest is on — click to pause"
-                      : "Auto-scroll to newest is off — click to resume")
-            }
-            .buttonStyle(.borderless)
-            .font(.system(size: 14))
-
-            Menu {
-                Toggle("Regex Filter", isOn: $logFilterRegex)
-                Toggle("Relative Timestamps", isOn: $logRelativeTimestamps)
-                Divider()
-                Menu("Bookmarks (\(bookmarkedEntriesOrdered.count))") {
-                    if bookmarkedEntriesOrdered.isEmpty {
-                        Text("No bookmarks in this tab")
-                    } else {
-                        ForEach(bookmarkedEntriesOrdered) { entry in
-                            Button(bookmarkMenuLabel(for: entry)) {
-                                logAutoScroll = false
-                                scrollToBookmarkID = entry.id
-                            }
-                        }
-                        Divider()
-                        Button("Clear Bookmarks") { bookmarkedIDs.removeAll() }
-                    }
-                }
-                Divider()
-                Button("Save Visible Logs…") { saveLogsToFile() }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .font(.system(size: 14))
-            .help("More log options")
-
-            Divider().frame(height: 16)
-
-            HStack(spacing: 6) {
-                // Resolving the vphone UDID (before any data has actually arrived) gets a
-                // spinner instead of a solid dot — isStreaming flips true immediately on
-                // click so the button already reads "Stop", but without this the dot would
-                // claim "live" for the second or so it takes just to find the device.
-                if manager.isStreamConnecting {
-                    ProgressView().controlSize(.mini).frame(width: 8, height: 8)
-                } else {
-                    Circle()
-                        .fill(manager.isStreaming ? Color.green : Color.secondary.opacity(0.35))
-                        .frame(width: 8, height: 8)
-                        .animation(.easeInOut(duration: 0.25), value: manager.isStreaming)
-                }
-                Button(manager.isStreaming ? "Stop" : "Stream") {
-                    if manager.isStreaming {
-                        manager.stopLogStream()
-                    } else {
-                        logAutoScroll = true  // #18 — (re)starting the stream means watch live
-                        manager.startLogStream()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .tint(manager.isStreaming ? .red : Color.accentColor)
-                .help(manager.isStreamConnecting ? "Resolving vphone device…"
-                      : manager.isStreaming      ? "Stop live log stream"
-                                                  : "Start live log stream")
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 9)
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(Color(.controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7)
+                .strokeBorder(Color.secondary.opacity(0.2), lineWidth: 0.5)
+        }
+        .frame(minWidth: 170, maxWidth: .infinity)
+        .contextMenu {
+            Toggle("Regular Expression", isOn: $logFilterRegex)
+            Toggle("Relative Timestamps", isOn: $logRelativeTimestamps)
+            Divider()
+            Button("Clear Search") { logSearch = "" }
+                .disabled(logSearch.isEmpty)
+        }
     }
 
-    // Distinguishes "nothing has arrived yet" from "entries exist but every level filter
-    // is off" — the latter now persists across relaunches, so a leftover all-off state
-    // would otherwise silently masquerade as a dead/broken stream (see #17).
+    private var logLevelFilters: some View {
+        HStack(spacing: 5) {
+            LevelFilter(label: "INF", on: $showINF, color: .blue)
+                .help("Show or hide Info messages")
+            LevelFilter(label: "ERR", on: $showERR, color: .red)
+                .help("Show or hide Error messages")
+            LevelFilter(label: "DBG", on: $showDBG, color: .secondary)
+                .help("Show or hide Debug messages")
+        }
+        .fixedSize()
+    }
+
+    private var logStatusBar: some View {
+        HStack(spacing: 7) {
+            if manager.isStreamConnecting {
+                ProgressView()
+                    .controlSize(.mini)
+            } else {
+                Circle()
+                    .fill(manager.isStreaming ? Color.green : Color.secondary.opacity(0.35))
+                    .frame(width: 7, height: 7)
+            }
+
+            Text(manager.isStreamConnecting ? "Connecting" : manager.isStreaming ? "Live" : "Offline")
+                .foregroundStyle(manager.isStreaming ? .primary : .secondary)
+
+            Text("·")
+                .foregroundStyle(.tertiary)
+
+            Text("\(visibleLogCount.formatted()) entries")
+                .foregroundStyle(.secondary)
+
+            if !bookmarkedEntriesOrdered.isEmpty {
+                Button {
+                    showBookmarks.toggle()
+                } label: {
+                    Label("\(bookmarkedEntriesOrdered.count)", systemImage: "bookmark.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+                .popover(isPresented: $showBookmarks, arrowEdge: .bottom) {
+                    bookmarkPopover
+                }
+            }
+
+            Spacer()
+
+            Button(manager.isStreaming ? "Stop Stream" : "Start Stream") {
+                if manager.isStreaming {
+                    manager.stopLogStream()
+                } else {
+                    logAutoScroll = true
+                    manager.startLogStream()
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .tint(manager.isStreaming ? .red : Color.accentColor)
+            .disabled(manager.isStreamConnecting)
+        }
+        .font(.system(size: 11))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(.bar)
+    }
+
+    private var bookmarkPopover: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Bookmarks")
+                .font(.headline)
+                .padding(12)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(bookmarkedEntriesOrdered) { entry in
+                        Button {
+                            logAutoScroll = false
+                            scrollToBookmarkID = entry.id
+                            showBookmarks = false
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(bookmarkMenuLabel(for: entry))
+                                    .lineLimit(1)
+                                Text(entry.source)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(4)
+            }
+            .frame(maxHeight: 240)
+
+            Divider()
+
+            Button("Clear Bookmarks", role: .destructive) {
+                bookmarkedIDs.removeAll()
+                showBookmarks = false
+            }
+            .padding(10)
+        }
+        .frame(width: 320)
+    }
+
+    private var logScopeSelection: Binding<LogScope> {
+        Binding(
+            get: {
+                if logsMerged { return .all }
+                return activeTab == .reactNative ? .reactNative : .unbound
+            },
+            set: { scope in
+                switch scope {
+                case .unbound:
+                    logsMerged = false
+                    activeTab = .unbound
+                case .reactNative:
+                    logsMerged = false
+                    activeTab = .reactNative
+                case .all:
+                    logsMerged = true
+                    activeTab = .unbound
+                }
+            }
+        )
+    }
+
+    private func unreadLevel(for scope: LogScope) -> UnreadLevel {
+        switch scope {
+        case .unbound: return unboundUnread
+        case .reactNative: return reactNativeUnread
+        case .all: return allUnread
+        }
+    }
+
+    private var visibleLogCount: Int {
+        filteredEntries.lazy.filter { !$0.isHeader }.count
+    }
+
     private var emptyLogStateMessage: String {
         if !showINF && !showERR && !showDBG {
-            return "INF/ERR/DBG are all hidden — enable one to see logs"
+            return "All log levels are hidden"
         }
-        return manager.isStreaming ? "Waiting for logs…" : "Tap Stream to start"
+        return manager.isStreaming ? "Waiting for logs…" : "Start the stream to begin"
     }
 
     @ViewBuilder
     private var logScrollView: some View {
         if filteredEntries.isEmpty {
-            Text(emptyLogStateMessage)
-                .font(.system(size: 13))
-                .foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 10) {
+                Image(systemName: manager.isStreaming ? "waveform.path" : "text.alignleft")
+                    .font(.system(size: 28, weight: .light))
+                    .foregroundStyle(.tertiary)
+                Text(emptyLogStateMessage)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                if !manager.isStreaming {
+                    Text("vbound will show Unbound and React Native output here.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             LogTextView(
                 entries: filteredEntries,
@@ -714,62 +815,6 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Helpers
-
-    @ViewBuilder
-    private func tabButton(_ tab: LogTab, icon: String, label: String, unread: UnreadLevel) -> some View {
-        if activeTab == tab {
-            Button { activeTab = tab } label: {
-                tabLabel(icon: icon, label: label, unread: unread)
-            }
-            .buttonStyle(.borderedProminent)
-        } else {
-            Button { activeTab = tab } label: {
-                tabLabel(icon: icon, label: label, unread: unread)
-            }
-            .buttonStyle(.bordered)
-        }
-    }
-
-    private static let customSymbolNames: Set<String> = ["Unbound", "React Native", "Discord"]
-    private static let mergedIconKey = "Unbound+ReactNative"
-
-    // The merged "Logs" tab stands in for both subsystems, so its icon combines their
-    // actual marks (with a small "+") rather than a generic system glyph that means
-    // nothing on its own.
-    private var mergedLogsIcon: some View {
-        HStack(spacing: 3) {
-            Image("Unbound")
-            Image(systemName: "plus")
-                .font(.system(size: 8, weight: .bold))
-            Image("React Native")
-        }
-    }
-
-    @ViewBuilder
-    private func tabLabel(icon: String, label: String, unread: UnreadLevel) -> some View {
-        Label {
-            Text(label)
-        } icon: {
-            if icon == Self.mergedIconKey {
-                mergedLogsIcon
-            } else if Self.customSymbolNames.contains(icon) {
-                Image(icon)
-            } else {
-                Image(systemName: icon)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .overlay(alignment: .trailing) {
-            if unread != .none {
-                Circle()
-                    .fill(unread == .error ? Color.red : Color.blue)
-                    .frame(width: 6, height: 6)
-                    .offset(x: -6)
-            }
-        }
-    }
-
     private var filteredEntries: [LogEntry] {
         guard activeTab != .shell else { return [] }
         let target: LogSubsystem? = logsMerged ? nil : (activeTab == .unbound ? .unbound : .reactNative)
@@ -781,7 +826,7 @@ struct ContentView: View {
             case "INF": levelPass = showINF
             case "ERR": levelPass = showERR
             case "DBG": levelPass = showDBG
-            default:    levelPass = true
+            default: levelPass = true
             }
             guard levelPass else { return false }
             return matchesFilter(entry.asString())
@@ -838,135 +883,6 @@ struct ContentView: View {
         searchMatchIndex = (searchMatchIndex - 1 + searchMatches.count) % searchMatches.count
     }
 
-    // MARK: - Shell toolbar + view
-
-    @ViewBuilder
-    private var shellToolbar: some View {
-        HStack(spacing: 6) {
-            // SSH target — expands like the log search field. The full address
-            // (mobile@127.0.0.1:2222, always the same host) lives in the tooltip rather
-            // than inline: with the control-key row now 8 buttons wide there's rarely
-            // enough leftover width for the full string, and it was clipping (#20).
-            HStack(spacing: 5) {
-                Image(systemName: "terminal")
-                    .foregroundStyle(.tertiary)
-                    .font(.system(size: 12))
-                Text("SSH")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 4)
-            .background(Color(.controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .help(manager.isShellConnected ? "Connected to mobile@127.0.0.1:2222" : "Not connected")
-
-            Group {
-                ForEach(terminalControlKeys, id: \.label) { control in
-                    Button {
-                        manager.sendShellControlBytes(control.bytes)
-                        // ^L alone only asks the remote to redraw — ANSILineBuffer
-                        // deliberately drops the clear-screen escape sequence the remote
-                        // sends back (non-SGR CSI sequences are out of scope for this
-                        // terminal emulation), so without this the label "Clear screen"
-                        // wouldn't actually clear anything locally, just add a redrawn
-                        // prompt below all the existing scrollback.
-                        if control.label == "^L" {
-                            manager.shellBuffer.reset()
-                            manager.shellLines = manager.shellBuffer.lines
-                        }
-                    } label: {
-                        Text(control.label)
-                            .font(.system(size: 10, design: .monospaced))
-                            .fixedSize()
-                    }
-                    .help(control.help)
-                    .disabled(!manager.isShellConnected)
-                }
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.mini)
-            .layoutPriority(1)
-
-            Divider().frame(height: 16)
-
-            Group {
-                Button { shellScrollVersion += 1 } label: {
-                    Image(systemName: "arrow.down.to.line")
-                }
-                .help("Scroll to bottom")
-
-                Button { copyShellOutput() } label: {
-                    Image(systemName: "doc.on.doc")
-                }
-                .help("Copy shell output to clipboard")
-            }
-            .buttonStyle(.borderless)
-            .font(.system(size: 14))
-            .layoutPriority(1)
-
-            Group {
-                // ⌘K only while Shell is active — see the matching comment on the log
-                // toolbar's own Clear button for why this has to be conditional.
-                if activeTab == .shell {
-                    Button {
-                        manager.shellBuffer.reset()
-                        manager.shellLines = manager.shellBuffer.lines
-                        if manager.isShellConnected { manager.sendShellInput("") }
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                    .keyboardShortcut("k", modifiers: .command)
-                } else {
-                    Button {
-                        manager.shellBuffer.reset()
-                        manager.shellLines = manager.shellBuffer.lines
-                        if manager.isShellConnected { manager.sendShellInput("") }
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                }
-            }
-            .buttonStyle(.borderless)
-            .font(.system(size: 14))
-            .layoutPriority(1)
-            .help("Clear terminal output")
-
-            Divider().frame(height: 16)
-
-            HStack(spacing: 6) {
-                // Port-forwarding + the SSH handshake take a real second or two with no
-                // feedback otherwise — a spinner here avoids the "did my click register?"
-                // moment (and, unlike the log stream's Stop, there's no reliable way to
-                // cancel mid-handshake, so the button is disabled rather than relabeled).
-                if manager.isShellConnecting {
-                    ProgressView().controlSize(.mini).frame(width: 8, height: 8)
-                } else {
-                    Circle()
-                        .fill(manager.isShellConnected ? Color.green : Color.secondary.opacity(0.35))
-                        .frame(width: 8, height: 8)
-                        .animation(.easeInOut(duration: 0.25), value: manager.isShellConnected)
-                }
-                Button(manager.isShellConnecting ? "Connecting…" : (manager.isShellConnected ? "Disconnect" : "Connect")) {
-                    if manager.isShellConnected { manager.disconnectShell() }
-                    else                        { manager.connectShell() }
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .tint(manager.isShellConnected ? .red : Color.accentColor)
-                .disabled(manager.isShellConnecting)
-                .help(manager.isShellConnecting ? "Connecting…"
-                      : manager.isShellConnected ? "Disconnect SSH session"
-                                                  : "Connect SSH session")
-            }
-            .fixedSize()
-            .layoutPriority(2)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 9)
-    }
-
     @ViewBuilder
     private var shellView: some View {
         VStack(spacing: 0) {
@@ -980,7 +896,7 @@ struct ContentView: View {
                             .font(.system(size: 11, design: .monospaced))
                             .textSelection(.enabled)
                             .fixedSize(horizontal: true, vertical: true)
-                            .frame(minWidth: cardSize.width - 32, alignment: .topLeading)
+                            .frame(minWidth: minimumWindowSize.width - 32, alignment: .topLeading)
                             .padding(.horizontal, 8)
                         Color.clear.frame(height: 1).id("shellBottom")
                     }
@@ -1049,6 +965,54 @@ struct ContentView: View {
         }
     }
 
+    private var shellStatusBar: some View {
+        HStack(spacing: 7) {
+            if manager.isShellConnecting {
+                ProgressView()
+                    .controlSize(.mini)
+            } else {
+                Circle()
+                    .fill(manager.isShellConnected ? Color.green : Color.secondary.opacity(0.35))
+                    .frame(width: 7, height: 7)
+            }
+
+            Text(manager.isShellConnecting ? "Connecting" : manager.isShellConnected ? "Connected" : "Offline")
+                .foregroundStyle(manager.isShellConnected ? .primary : .secondary)
+
+            Text("·")
+                .foregroundStyle(.tertiary)
+
+            Text("mobile@127.0.0.1:2222")
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Button {
+                shellScrollVersion += 1
+            } label: {
+                Image(systemName: "arrow.down.to.line")
+            }
+            .buttonStyle(.plain)
+            .help("Jump to latest output")
+
+            Button(manager.isShellConnected ? "Disconnect" : "Connect") {
+                if manager.isShellConnected {
+                    manager.disconnectShell()
+                } else {
+                    manager.connectShell()
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .tint(manager.isShellConnected ? .red : Color.accentColor)
+            .disabled(manager.isShellConnecting)
+        }
+        .font(.system(size: 11))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(.bar)
+    }
+
     private func markUnread(_ newEntries: ArraySlice<LogEntry>) {
         for entry in newEntries {
             guard let sub = entry.subsystem else { continue }
@@ -1086,39 +1050,30 @@ struct ContentView: View {
         return "Boot vphone"
     }
 
-    private var buildHelpText: String {
-        if manager.buildPhase.isRunning { return "Cancel current task" }
-        if !pathValid(unboundPath)      { return "Unbound tweak path is invalid — check Settings" }
-        var text = "Build and install the Unbound tweak"
-        if let last = manager.lastTweakResult { text += "\n\(resultSummary(last))" }
-        return text
+    private var tweakActionHelpText: String {
+        if manager.buildPhase.isRunning {
+            return manager.activeBuildTarget == .tweak ? "Cancel tweak build" : "Another build is running"
+        }
+        if !pathValid(unboundPath) { return "Unbound tweak path is invalid — check Settings" }
+        return "Build and install tweak"
     }
 
-    private var addonsHelpText: String {
-        if manager.buildPhase.isRunning { return "A task is already running" }
+    private var addonsActionHelpText: String {
+        if manager.buildPhase.isRunning {
+            return manager.activeBuildTarget == .plugins ? "Cancel addons build" : "Another build is running"
+        }
         if !pathValid(unboundPluginsPath) { return "Addon workspace path is invalid — check Settings" }
-        var text = "Build, deploy, and reload addons"
-        if let last = manager.lastAddonsResult { text += "\n\(resultSummary(last))" }
-        return text
+        return "Build and deploy addons"
     }
 
-    private func resultSummary(_ result: BuildResultSummary) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        let relative = formatter.localizedString(for: result.date, relativeTo: Date())
-        return "Last build: \(result.succeeded ? "✓" : "✗") \(relative)"
-    }
-
-    private var mountHelpText: String {
-        if manager.isMounted   { return "Open vphone in Finder (right-click to unmount)" }
-        if manager.isMounting  { return "Mounting…" }
+    private var mountActionHelpText: String {
+        if manager.isMounted { return "Unmount vphone" }
+        if manager.isMounting { return "Mounting…" }
         if !manager.sshfsAvailable {
-            return "sshfs not found — install macFUSE and sshfs-mac to mount vphone in Finder"
+            return "sshfs not found — install macFUSE and sshfs-mac"
         }
-        if let lastMountError = manager.lastMountError {
-            return "Mount failed: \(lastMountError)"
-        }
-        return "Mount vphone's filesystem in Finder"
+        if let error = manager.lastMountError { return "Mount failed: \(error)" }
+        return "Mount vphone in Finder"
     }
 
     private func styledShellText() -> Text {
@@ -1135,20 +1090,6 @@ struct ContentView: View {
         }
         return Text(result)
     }
-
-    // Plain ASCII "^" rather than the Unicode "⌃" modifier glyph — that symbol is
-    // designed to render as a tiny mark meant for NSMenuItem key-equivalent display,
-    // not as normal-sized text in a button label.
-    private let terminalControlKeys: [(label: String, bytes: [UInt8], help: String)] = [
-        ("^C",  [0x03],             "Send Ctrl+C (interrupt)"),
-        ("^D",  [0x04],             "Send Ctrl+D (EOF)"),
-        ("^Z",  [0x1A],             "Send Ctrl+Z (suspend)"),
-        ("^L",  [0x0C],             "Clear screen"),
-        ("Esc", [0x1B],             "Send Escape"),
-        ("Tab", [0x09],             "Send Tab (autocomplete)"),
-        ("↑",   [0x1B, 0x5B, 0x41], "Send Up arrow (remote shell history)"),
-        ("↓",   [0x1B, 0x5B, 0x42], "Send Down arrow (remote shell history)"),
-    ]
 
     // A single-line TextField mangles pasted newlines by default — this mirrors real
     // terminal paste semantics instead: every newline-terminated line is sent immediately,
@@ -1185,6 +1126,17 @@ struct ContentView: View {
         )
     }
 
+    private func clearConsole() {
+        if activeTab == .shell {
+            manager.shellBuffer.reset()
+            manager.shellLines = manager.shellBuffer.lines
+            return
+        }
+        manager.logLines.removeAll()
+        bookmarkedIDs.removeAll()
+        searchMatchIndex = 0
+    }
+
     private func copyLogs() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(
@@ -1193,14 +1145,17 @@ struct ContentView: View {
         )
     }
 
-    private func saveLogsToFile() {
+    private func saveVisibleOutputToFile() {
         let panel = NSSavePanel()
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HHmmss"
-        panel.nameFieldStringValue = "vbound-logs-\(formatter.string(from: Date())).log"
+        let outputName = activeTab == .shell ? "shell" : "logs"
+        panel.nameFieldStringValue = "vbound-\(outputName)-\(formatter.string(from: Date())).log"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let text = filteredEntries.map { $0.asString() }.joined(separator: "\n")
+        let text = activeTab == .shell
+            ? manager.shellLines.map(\.plain).joined(separator: "\n")
+            : filteredEntries.map { $0.asString() }.joined(separator: "\n")
         try? text.write(to: url, atomically: true, encoding: .utf8)
     }
 

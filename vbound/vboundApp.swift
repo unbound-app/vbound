@@ -186,6 +186,12 @@ extension Notification.Name {
     static let focusLogFilter        = Notification.Name("vbound.focusLogFilter")
     static let showCommandPalette    = Notification.Name("vbound.showCommandPalette")
     static let showOnboardingChecklist = Notification.Name("vbound.showOnboardingChecklist")
+    static let showLogs              = Notification.Name("vbound.showLogs")
+    static let showShell             = Notification.Name("vbound.showShell")
+    static let clearConsole          = Notification.Name("vbound.clearConsole")
+    static let copyVisibleOutput     = Notification.Name("vbound.copyVisibleOutput")
+    static let exportVisibleOutput   = Notification.Name("vbound.exportVisibleOutput")
+    static let jumpToLatest          = Notification.Name("vbound.jumpToLatest")
 }
 
 @main
@@ -197,6 +203,8 @@ struct vboundApp: App {
     @AppStorage("unboundPluginsPath") private var unboundPluginsPath = NSHomeDirectory() + "/Developer/unbound-plugins"
     @AppStorage("autoCheckForUpdates") private var autoCheckForUpdates = true
     @AppStorage("updateCheckIntervalHours") private var updateCheckIntervalHours = 24
+    @AppStorage("logFilterRegex") private var logFilterRegex = false
+    @AppStorage("logRelativeTimestamps") private var logRelativeTimestamps = false
     @StateObject private var appUpdater: AppUpdater = {
         let updater = AppUpdater(owner: "unbound-app", repo: "vbound")
         #if DEBUG
@@ -234,12 +242,9 @@ struct vboundApp: App {
                 }
         }
         .windowResizability(.contentSize)
+        .defaultSize(width: 720, height: 560)
+        .windowToolbarStyle(.unifiedCompact)
         .commands {
-            // vbound is a single fixed-size panel bound to one AppController instance
-            // (shared via .environment(manager)) — a second window from the default
-            // WindowGroup "New Window" command would drive the *same* controller, and
-            // WindowAccessor's configureWindow would silently steal manager.ourWindow
-            // out from under the first window the next time it ran.
             CommandGroup(replacing: .newItem) {}
             CommandGroup(replacing: .appInfo) {
                 Button("About vbound") {
@@ -281,11 +286,7 @@ struct vboundApp: App {
                 .disabled(!manager.vphoneDetected && !AppController.pathValid(vphoneCliPath))
 
                 Button(manager.buildPhase.isRunning && manager.activeBuildTarget == .tweak ? "Cancel Build" : "Build Tweak") {
-                    if manager.buildPhase.isRunning, manager.activeBuildTarget == .tweak {
-                        manager.cancelBuild()
-                    } else {
-                        manager.buildUnbound(in: unboundPath)
-                    }
+                    manager.toggleTweakBuild(in: unboundPath)
                 }
                 .keyboardShortcut("i", modifiers: .command)
                 .disabled(manager.buildPhase.isRunning
@@ -293,11 +294,7 @@ struct vboundApp: App {
                           : !AppController.pathValid(unboundPath))
 
                 Button(manager.buildPhase.isRunning && manager.activeBuildTarget == .plugins ? "Cancel Addons Build" : "Build Addons") {
-                    if manager.buildPhase.isRunning, manager.activeBuildTarget == .plugins {
-                        manager.cancelBuild()
-                    } else {
-                        manager.buildPlugins(in: unboundPluginsPath)
-                    }
+                    manager.toggleAddonsBuild(in: unboundPluginsPath)
                 }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
                 .disabled(manager.buildPhase.isRunning
@@ -320,17 +317,74 @@ struct vboundApp: App {
                 .keyboardShortcut("d", modifiers: .command)
                 .disabled(!manager.vphoneDetected)
 
-                Button("Find in Logs") {
-                    NotificationCenter.default.post(name: .focusLogFilter, object: nil)
-                }
-                .keyboardShortcut("f", modifiers: .command)
-
                 Divider()
 
                 Button("Command Palette…") {
                     NotificationCenter.default.post(name: .showCommandPalette, object: nil)
                 }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
+            }
+            CommandMenu("Console") {
+                Button("Show Logs") {
+                    NotificationCenter.default.post(name: .showLogs, object: nil)
+                }
+                .keyboardShortcut("1", modifiers: .command)
+
+                Button("Show Shell") {
+                    NotificationCenter.default.post(name: .showShell, object: nil)
+                }
+                .keyboardShortcut("2", modifiers: .command)
+
+                Divider()
+
+                Button("Find in Logs") {
+                    NotificationCenter.default.post(name: .focusLogFilter, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: .command)
+
+                Toggle("Use Regular Expression", isOn: $logFilterRegex)
+                Toggle("Use Relative Timestamps", isOn: $logRelativeTimestamps)
+
+                Divider()
+
+                Button("Jump to Latest") {
+                    NotificationCenter.default.post(name: .jumpToLatest, object: nil)
+                }
+                .keyboardShortcut(.downArrow, modifiers: .command)
+
+                Button("Copy Visible Output") {
+                    NotificationCenter.default.post(name: .copyVisibleOutput, object: nil)
+                }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+
+                Button("Export Visible Output…") {
+                    NotificationCenter.default.post(name: .exportVisibleOutput, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+
+                Button("Clear Console") {
+                    NotificationCenter.default.post(name: .clearConsole, object: nil)
+                }
+                .keyboardShortcut("k", modifiers: .command)
+
+                Divider()
+
+                Menu("Send Control Character") {
+                    Button("Interrupt — Control-C") { manager.sendShellControlBytes([0x03]) }
+                    Button("End of File — Control-D") { manager.sendShellControlBytes([0x04]) }
+                    Button("Suspend — Control-Z") { manager.sendShellControlBytes([0x1A]) }
+                    Button("Clear Screen — Control-L") {
+                        manager.sendShellControlBytes([0x0C])
+                        manager.shellBuffer.reset()
+                        manager.shellLines = manager.shellBuffer.lines
+                    }
+                    Divider()
+                    Button("Escape") { manager.sendShellControlBytes([0x1B]) }
+                    Button("Tab") { manager.sendShellControlBytes([0x09]) }
+                    Button("Up Arrow") { manager.sendShellControlBytes([0x1B, 0x5B, 0x41]) }
+                    Button("Down Arrow") { manager.sendShellControlBytes([0x1B, 0x5B, 0x42]) }
+                }
+                .disabled(!manager.isShellConnected)
             }
         }
 

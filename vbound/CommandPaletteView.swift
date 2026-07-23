@@ -30,19 +30,11 @@ struct CommandPaletteView: View {
             },
             PaletteCommand(title: manager.buildPhase.isRunning && manager.activeBuildTarget == .tweak
                             ? "Cancel Tweak Build" : "Build Tweak", icon: "hammer.fill") {
-                if manager.buildPhase.isRunning, manager.activeBuildTarget == .tweak {
-                    manager.cancelBuild()
-                } else {
-                    manager.buildUnbound(in: unboundPath)
-                }
+                manager.toggleTweakBuild(in: unboundPath)
             },
             PaletteCommand(title: manager.buildPhase.isRunning && manager.activeBuildTarget == .plugins
                             ? "Cancel Addons Build" : "Build Addons", icon: "puzzlepiece.extension.fill") {
-                if manager.buildPhase.isRunning, manager.activeBuildTarget == .plugins {
-                    manager.cancelBuild()
-                } else {
-                    manager.buildPlugins(in: unboundPluginsPath)
-                }
+                manager.toggleAddonsBuild(in: unboundPluginsPath)
             },
             PaletteCommand(title: manager.isStreaming ? "Stop Log Stream" : "Start Log Stream",
                             icon: "text.alignleft") {
@@ -55,9 +47,9 @@ struct CommandPaletteView: View {
             PaletteCommand(title: "Launch Discord", icon: "arrow.clockwise") {
                 manager.launchDiscord()
             },
-            PaletteCommand(title: manager.isMounted ? "Reveal vphone in Finder" : "Mount vphone in Finder",
-                            icon: "folder") {
-                if manager.isMounted { manager.revealMountInFinder() } else { manager.mountVphone() }
+            PaletteCommand(title: manager.isMounted ? "Unmount vphone" : "Mount vphone in Finder",
+                            icon: manager.isMounted ? "externaldrive.fill" : "externaldrive") {
+                if manager.isMounted { manager.unmountVphone() } else { manager.mountVphone() }
             },
             PaletteCommand(title: "Open Settings", icon: "gearshape") {
                 openSettings()

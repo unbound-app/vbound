@@ -3,6 +3,24 @@ import UserNotifications
 
 extension AppController {
 
+    func toggleTweakBuild(in directory: String) {
+        guard !buildPhase.isRunning || activeBuildTarget == .tweak else { return }
+        if buildPhase.isRunning {
+            cancelBuild()
+        } else {
+            buildUnbound(in: directory)
+        }
+    }
+
+    func toggleAddonsBuild(in directory: String) {
+        guard !buildPhase.isRunning || activeBuildTarget == .plugins else { return }
+        if buildPhase.isRunning {
+            cancelBuild()
+        } else {
+            buildPlugins(in: directory)
+        }
+    }
+
     func buildPlugins(in directory: String) {
         buildTask = Task { [weak self] in
             guard let self else { return }

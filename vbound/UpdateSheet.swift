@@ -3,11 +3,6 @@ import AppUpdater
 import Version
 import Textual
 
-// Rendered as an in-window overlay rather than a system `.sheet`. A real NSWindow
-// sheet attached to our floating, non-resizable panel repaints incorrectly while its
-// content resizes across states (a black flash under the title, worst during the
-// downloading phase where the progress row updates continuously) — this sidesteps
-// that entirely by never spawning a second window.
 struct UpdateOverlay: View {
     @EnvironmentObject private var appUpdater: AppUpdater
     @Binding var isPresented: Bool
