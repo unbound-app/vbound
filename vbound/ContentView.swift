@@ -327,7 +327,7 @@ struct ContentView: View {
             Button {
                 openSettings()
             } label: {
-                Label("Settings", systemImage: "gearshape")
+                Image(systemName: "gearshape")
             }
             .buttonStyle(.bordered)
             .focusable(false)
