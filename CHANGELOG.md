@@ -9,6 +9,39 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-23
+
+### Added
+
+- Context-aware macOS toolbar actions for the two workspaces: Discord, Tweak,
+  Addons, Mount, and Settings remain one click away in Logs, while Shell exposes
+  Interrupt, Copy, Clear, Export, and Settings.
+- Floating "Jump to Latest" controls inside the log and shell canvases when
+  browsing older output.
+
+### Changed
+
+- Redesigned the main window around a fixed 720×560 layout with a compact
+  icon-only Logs/Shell switch, native segmented source tabs, clearer log contrast,
+  and dedicated labeled action pills.
+- Reworked the Shell workspace for automatic connection, left-aligned terminal
+  output, a compact status bar, and workspace-specific controls.
+- Ordered log filters as Debug, Info, and Error and restored the custom Unbound,
+  React Native, and Discord artwork throughout the interface.
+- Optimized addon deployment by replacing repeated remote metadata probes with a
+  single scan before parallel deployment.
+
+### Fixed
+
+- Finder mounting no longer hangs while selecting the wrong usbmux device or
+  waiting indefinitely for SSHFS, and now reports forwarding and mount failures.
+- Shell authentication and automatic reconnection no longer overlap or discard
+  useful scrollback after a transient failure.
+- Clearing the shell also resets its ANSI parser, preventing stale formatting
+  from leaking into later output.
+- The command palette now supports complete keyboard navigation, activation, and
+  dismissal while its search field is focused.
+
 ## [0.15.0] - 2026-07-23
 
 ### Added

@@ -334,7 +334,7 @@ struct ContentView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 56)
+            .frame(width: 68)
             .accessibilityLabel("Workspace")
         }
 
