@@ -68,7 +68,7 @@ extension AppController {
     private func deployPlugins(_ pluginDists: [(name: String, path: String)]) async {
         activeProcesses = []
         buildProgress = 0
-        buildLog = "Deploying \(pluginDists.count) addons…"
+        buildLog = "Deploying 0 of \(pluginDists.count) addons…"
         let results: [(name: String, path: String, ok: Bool)] = await withTaskGroup(of: (String, String, Bool).self) { group in
             for (name, distPath) in pluginDists {
                 group.addTask { [weak self] in
@@ -81,7 +81,7 @@ extension AppController {
             for await result in group {
                 collected.append(result)
                 buildProgress = Double(collected.count) / Double(pluginDists.count)
-                buildLog = "Deployed \(collected.count) of \(pluginDists.count) addons…"
+                buildLog = "Deploying \(collected.count) of \(pluginDists.count) addons…"
             }
             return collected
         }
