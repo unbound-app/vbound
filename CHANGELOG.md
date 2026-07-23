@@ -9,6 +9,51 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-07-23
+
+### Added
+
+- A first-run setup checklist verifying `vphone-cli`, `pymobiledevice3`, `sshpass`,
+  and `sshfs` are all reachable, shown once on first launch and reopenable anytime
+  from the app menu's "Show Setup Checklist…".
+- A command palette (⇧⌘P or Actions → Command Palette…) listing every primary
+  action — Boot, Build Tweak/Addons, Stream, Shell, Discord, Mount, Settings,
+  diagnostics — searchable and keyboard-navigable.
+- A global hotkey (⌥⌘V, off by default) to show/hide the vbound window regardless
+  of which app is focused, toggleable in Settings → Automation.
+- Addon deployment now uploads and deploys every plugin concurrently instead of one
+  at a time, and a partial failure no longer aborts the whole batch — whatever
+  didn't make it can be retried individually via the new "Retry" action on the
+  failure toast without rebuilding everything that already succeeded.
+- Build Addons joins Build Tweak in the Actions menu (⇧⌘I) — previously only
+  reachable from the status-strip button.
+- The Tweak/Addons buttons' tooltips now show the outcome and relative time of the
+  last build ("Last build: ✓ 2m ago"), and a failed build's toast gets a "Save
+  Log…" action to write the full captured output to a file.
+- The Tweak build's progress bar no longer pins at 100% for a long tail when the
+  file-count estimate undershoots the real step count — it now grows the estimate
+  on the fly and soft-caps the displayed fraction until the build actually finishes.
+- A background notification when a build finishes while vbound isn't the frontmost
+  app, and a Settings toggle (Advanced) to turn build sounds/notifications off
+  independently of the system's own sound settings.
+- The log filter can switch to regex matching (via the new "⋯" menu in the log
+  toolbar), and log rows can show relative ("5s"/"2m") timestamps instead of
+  absolute ones.
+- Log lines can be bookmarked from their right-click menu and jumped back to from
+  the "⋯" menu's Bookmarks submenu; bookmarked rows get a colored source column.
+- Visible/filtered logs can be saved straight to a file, not just copied to the
+  clipboard.
+- A "Test Connection" button next to the device password field in Settings, and a
+  "Copy Diagnostics" action (versions, resolved paths, tool presence, device state)
+  for bug reports.
+- A failed Finder mount now surfaces the actual `sshfs` error (via a tooltip and a
+  small red indicator on the mount button) instead of failing silently back to the
+  unmounted state with no explanation.
+- An Accent Color picker in Settings → General, with a small set of choices beyond
+  just following the system accent.
+- "What's New…" in the app menu, linking to the GitHub Releases page for past
+  release notes outside the active update-check flow.
+
 ## [0.14.1] - 2026-07-21
 
 ### Added

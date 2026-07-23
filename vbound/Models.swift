@@ -28,11 +28,33 @@ struct LogEntry: Identifiable {
     let source    : String
     let message   : String
     let subsystem : LogSubsystem?
+    let date      : Date?
+
+    nonisolated init(time: String, level: String, source: String, message: String,
+         subsystem: LogSubsystem?, date: Date? = nil) {
+        self.time = time
+        self.level = level
+        self.source = source
+        self.message = message
+        self.subsystem = subsystem
+        self.date = date
+    }
 
     var isHeader: Bool { time.isEmpty }
 
     func asString() -> String {
         isHeader ? message : "\(time)  \(level.isEmpty ? "   " : level)  [\(source)]  \(message)"
+    }
+
+    func relativeTime(as now: Date = Date()) -> String {
+        guard let date else { return String(time.prefix(8)) }
+        let seconds = max(0, Int(now.timeIntervalSince(date)))
+        switch seconds {
+        case 0..<60:    return "\(seconds)s"
+        case 60..<3600: return "\(seconds / 60)m"
+        case 3600..<86400: return "\(seconds / 3600)h"
+        default:        return "\(seconds / 86400)d"
+        }
     }
 }
 
@@ -173,6 +195,43 @@ final class ANSILineBuffer {
 
 enum BuildTarget: Equatable {
     case tweak, plugins
+}
+
+enum AccentChoice: String, CaseIterable, Identifiable {
+    case system, red, orange, yellow, green, blue, purple, pink
+
+    var id: String { rawValue }
+
+    var label: String {
+        rawValue.prefix(1).uppercased() + rawValue.dropFirst()
+    }
+
+    var color: Color? {
+        switch self {
+        case .system: return nil
+        case .red:    return .red
+        case .orange: return .orange
+        case .yellow: return .yellow
+        case .green:  return .green
+        case .blue:   return .blue
+        case .purple: return .purple
+        case .pink:   return .pink
+        }
+    }
+}
+
+struct BuildResultSummary: Equatable {
+    let succeeded: Bool
+    let date: Date
+}
+
+struct FailedPlugin: Equatable {
+    let name: String
+    let path: String
+}
+
+enum SSHTestState: Equatable {
+    case idle, testing, success, failure(String)
 }
 
 enum BuildPhase: Equatable {

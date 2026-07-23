@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @Environment(AppController.self) private var manager
     @State private var showResetConfirm = false
 
     // Every @AppStorage key surfaced anywhere in Settings (paths/connection/automation/
@@ -12,6 +13,8 @@ struct SettingsView: View {
         "autoCheckForUpdates", "updateCheckIntervalHours",
         "logBufferSize", "shellBufferSize",
         "skippedUpdateVersion",
+        "globalHotkeyEnabled", "buildSoundsEnabled", "buildNotificationsEnabled",
+        "accentColorChoice",
     ]
 
     var body: some View {
@@ -32,6 +35,9 @@ struct SettingsView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 Spacer()
+                Button("Copy Diagnostics") { manager.copyDiagnosticInfo() }
+                    .buttonStyle(.link)
+                    .font(.footnote)
                 Button("Reset to Defaults…") { showResetConfirm = true }
                     .buttonStyle(.link)
                     .font(.footnote)
@@ -64,14 +70,24 @@ struct SettingsView: View {
 }
 
 private struct GeneralSettingsView: View {
+    @Environment(AppController.self) private var manager
     @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
     @AppStorage("unboundPath")   private var unboundPath   = NSHomeDirectory() + "/Developer/loader-ios"
     @AppStorage("unboundPluginsPath") private var unboundPluginsPath = NSHomeDirectory() + "/Developer/unbound-plugins"
     @AppStorage("sshPassword") private var sshPassword = ""
+    @AppStorage("accentColorChoice") private var accentColorChoice = AccentChoice.system.rawValue
     @State private var isPasswordVisible = false
 
     var body: some View {
         Form {
+            Section("Appearance") {
+                Picker("Accent Color", selection: $accentColorChoice) {
+                    ForEach(AccentChoice.allCases) { choice in
+                        Text(choice.label).tag(choice.rawValue)
+                    }
+                }
+            }
+
             Section("Paths") {
                 FolderPicker(label: "vphone-cli", path: $vphoneCliPath)
                 FolderPicker(label: "Unbound Tweak", path: $unboundPath)
@@ -96,20 +112,50 @@ private struct GeneralSettingsView: View {
                     .foregroundStyle(.secondary)
                     .help(isPasswordVisible ? "Hide password" : "Show password")
                 }
-                Text("Used for SSH login and sudo on the vphone device.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("Used for SSH login and sudo on the vphone device.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    testConnectionButton
+                }
             }
         }
         .formStyle(.grouped)
         .padding(.top, 8)
     }
+
+    @ViewBuilder
+    private var testConnectionButton: some View {
+        switch manager.sshTestState {
+        case .idle:
+            Button("Test Connection") { manager.testSSHConnection() }
+                .buttonStyle(.link)
+                .font(.footnote)
+        case .testing:
+            HStack(spacing: 4) {
+                ProgressView().controlSize(.mini)
+                Text("Testing…").font(.footnote).foregroundStyle(.secondary)
+            }
+        case .success:
+            Label("Connected", systemImage: "checkmark.circle.fill")
+                .font(.footnote)
+                .foregroundStyle(.green)
+        case .failure(let message):
+            Label("Failed", systemImage: "xmark.circle.fill")
+                .font(.footnote)
+                .foregroundStyle(.red)
+                .help(message)
+        }
+    }
 }
 
 private struct AutomationSettingsView: View {
+    @Environment(AppController.self) private var manager
     @AppStorage("autoAttachEnabled") private var autoAttachEnabled = true
     @AppStorage("autoStartLogStreamEnabled") private var autoStartLogStreamEnabled = false
     @AppStorage("autoConnectShellEnabled")   private var autoConnectShellEnabled   = false
+    @AppStorage("globalHotkeyEnabled") private var globalHotkeyEnabled = false
 
     var body: some View {
         Form {
@@ -117,6 +163,14 @@ private struct AutomationSettingsView: View {
                 Toggle("Auto-attach to vphone window", isOn: $autoAttachEnabled)
                 Toggle("Auto-start log stream on attach", isOn: $autoStartLogStreamEnabled)
                 Toggle("Auto-connect shell on attach", isOn: $autoConnectShellEnabled)
+            }
+
+            Section("Shortcuts") {
+                Toggle("Global hotkey (\(AppController.hotkeyLabel)) to show/hide vbound",
+                       isOn: $globalHotkeyEnabled)
+                .onChange(of: globalHotkeyEnabled) { _, enabled in
+                    if enabled { manager.enableGlobalHotkey() } else { manager.disableGlobalHotkey() }
+                }
             }
         }
         .formStyle(.grouped)
@@ -130,9 +184,16 @@ private struct AdvancedSettingsView: View {
     @AppStorage("skippedUpdateVersion") private var skippedUpdateVersion = ""
     @AppStorage("logBufferSize")   private var logBufferSize   = 2000
     @AppStorage("shellBufferSize") private var shellBufferSize = 2000
+    @AppStorage("buildSoundsEnabled") private var buildSoundsEnabled = true
+    @AppStorage("buildNotificationsEnabled") private var buildNotificationsEnabled = true
 
     var body: some View {
         Form {
+            Section("Notifications") {
+                Toggle("Play a sound when a build finishes", isOn: $buildSoundsEnabled)
+                Toggle("Notify when a build finishes in the background", isOn: $buildNotificationsEnabled)
+            }
+
             Section("Updates") {
                 Toggle("Automatically check for updates", isOn: $autoCheckForUpdates)
                 Picker("Check frequency", selection: $updateCheckIntervalHours) {
@@ -180,4 +241,5 @@ private struct AdvancedSettingsView: View {
 
 #Preview {
     SettingsView()
+        .environment(AppController())
 }

@@ -1,4 +1,5 @@
 import AppKit
+import UserNotifications
 
 extension AppController {
 
@@ -8,12 +9,15 @@ extension AppController {
             if !isStreaming { startLogStream() }
 
             let dirPath = (directory as NSString).expandingTildeInPath
-            buildLog = ""; buildProgress = 0; buildPhase = .buildingPlugins; activeBuildTarget = .plugins
+            lastPluginsWorkDir = dirPath
+            lastFailedPlugins = []
+            buildLog = ""; buildLogFull = ""; buildProgress = 0; buildPhase = .buildingPlugins; activeBuildTarget = .plugins
             let built = await run(args: [
                 "/bin/zsh", "-l", "-c",
                 "cd \(Self.shellQuoted(dirPath)) && bunx ubd build"
             ], onLaunch: { [weak self] p in self?.buildProcess = p }) { [weak self] line in
                 self?.buildLog = line
+                self?.appendBuildLog(line)
             }
             guard built else { return fail("Addon build failed") }
             guard !Task.isCancelled else { return }
@@ -25,41 +29,92 @@ extension AppController {
             guard !Task.isCancelled else { return }
 
             buildPhase = .deployingPlugins
-            for (name, distPath) in pluginDists {
-                let stagingPath = "/tmp/vbound-plugin-\(UUID().uuidString)"
-                buildLog = "Deploying addon \(name)…"
-                let uploaded = await run(args: [
-                    "sshpass", "-p", sshPassword, "scp",
-                    "-r",
-                    "-P", "2222",
-                    "-o", "StrictHostKeyChecking=no",
-                    "-o", "UserKnownHostsFile=/dev/null",
-                    "-o", "PubkeyAuthentication=no",
-                    "-o", "ControlMaster=auto",
-                    "-o", "ControlPath=\(AppController.sshControlPath)",
-                    "-o", "ControlPersist=60",
-                    distPath, "mobile@127.0.0.1:\(stagingPath)"
-                ], onLaunch: { [weak self] p in self?.buildProcess = p })
-                guard uploaded else { return fail("Addon upload failed") }
-                guard !Task.isCancelled else { return }
-
-                let deployed = await run(
-                    ssh: pluginDeploymentCommand(name: name, stagingPath: stagingPath),
-                    onLaunch: { [weak self] p in self?.buildProcess = p }
-                )
-                guard deployed else { return fail("Addon deployment failed") }
-                guard !Task.isCancelled else { return }
-            }
-
-            buildPhase = .restarting
-            let restarted = await restartDiscord()
-            guard !Task.isCancelled else { return }
-            guard restarted else { return fail("Discord restart failed") }
-
-            buildPhase = .pluginsDeployed; buildLog = ""; buildProgress = 0
-            NSSound(named: "Glass")?.play()
-            scheduleReset()
+            await deployPlugins(pluginDists)
         }
+    }
+
+    func retryFailedPlugins() {
+        guard !lastFailedPlugins.isEmpty, !buildPhase.isRunning else { return }
+        let toRetry = lastFailedPlugins.map { (name: $0.name, path: $0.path) }
+        buildTask = Task { [weak self] in
+            guard let self else { return }
+            if !isStreaming { startLogStream() }
+            buildLog = ""; buildLogFull = ""; buildProgress = 0
+            buildPhase = .deployingPlugins; activeBuildTarget = .plugins
+            await ensurePortForward()
+            guard !Task.isCancelled else { return }
+            await deployPlugins(toRetry)
+        }
+    }
+
+    private func deployPlugins(_ pluginDists: [(name: String, path: String)]) async {
+        activeProcesses = []
+        let results: [(name: String, path: String, ok: Bool)] = await withTaskGroup(of: (String, String, Bool).self) { group in
+            for (name, distPath) in pluginDists {
+                group.addTask { [weak self] in
+                    guard let self else { return (name, distPath, false) }
+                    let ok = await self.deployOnePlugin(name: name, distPath: distPath)
+                    return (name, distPath, ok)
+                }
+            }
+            var collected: [(String, String, Bool)] = []
+            for await result in group { collected.append(result) }
+            return collected
+        }
+        guard !Task.isCancelled else { return }
+
+        let succeededNames = results.filter(\.ok).map(\.name)
+        let failed = results.filter { !$0.ok }.map { FailedPlugin(name: $0.name, path: $0.path) }
+        lastFailedPlugins = failed
+
+        guard !succeededNames.isEmpty else {
+            return fail(failed.count == pluginDists.count
+                ? "All \(failed.count) addon(s) failed to deploy"
+                : "Addon deployment failed")
+        }
+
+        buildPhase = .restarting
+        let restarted = await restartDiscord()
+        guard !Task.isCancelled else { return }
+        guard restarted else { return fail("Discord restart failed") }
+
+        lastAddonsResult = BuildResultSummary(succeeded: failed.isEmpty, date: Date())
+        if failed.isEmpty {
+            buildPhase = .pluginsDeployed; buildLog = ""; buildProgress = 0
+            playBuildSound(success: true)
+            notifyBuildCompletion(target: "Addons", succeeded: true, message: "All addons deployed.")
+            scheduleReset()
+        } else {
+            let names = failed.map(\.name).joined(separator: ", ")
+            buildPhase = .failed("Deployed \(succeededNames.count)/\(pluginDists.count) addons — failed: \(names)")
+            buildLog = ""; buildProgress = 0
+            playBuildSound(success: false)
+            notifyBuildCompletion(target: "Addons", succeeded: false, message: "Failed: \(names)")
+        }
+    }
+
+    private func deployOnePlugin(name: String, distPath: String) async -> Bool {
+        let stagingPath = "/tmp/vbound-plugin-\(UUID().uuidString)"
+        buildLog = "Deploying addon \(name)…"
+        let uploaded = await run(args: [
+            "sshpass", "-p", sshPassword, "scp",
+            "-r",
+            "-P", "2222",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "PubkeyAuthentication=no",
+            "-o", "ControlMaster=auto",
+            "-o", "ControlPath=\(AppController.sshControlPath)",
+            "-o", "ControlPersist=60",
+            distPath, "mobile@127.0.0.1:\(stagingPath)"
+        ], onLaunch: { [weak self] p in self?.activeProcesses.append(p) })
+        guard uploaded, !Task.isCancelled else { return false }
+
+        let deployed = await run(
+            ssh: pluginDeploymentCommand(name: name, stagingPath: stagingPath),
+            onLaunch: { [weak self] p in self?.activeProcesses.append(p) }
+        )
+        return deployed && !Task.isCancelled
     }
 
     func buildUnbound(in directory: String) {
@@ -70,12 +125,12 @@ extension AppController {
             let dirPath = (directory as NSString).expandingTildeInPath
             let ncpu    = ProcessInfo.processInfo.processorCount
 
-            buildLog = ""; buildProgress = 0; buildPhase = .building; activeBuildTarget = .tweak
+            buildLog = ""; buildLogFull = ""; buildProgress = 0; buildPhase = .building; activeBuildTarget = .tweak
             // Off the main thread: this walks the entire source tree with
             // FileManager.enumerator, and buildTask inherits AppController's MainActor
             // context — called directly, this would run synchronously on the main thread
             // and could visibly hitch the window right as the progress bar tries to appear.
-            let totalSteps = await Task.detached {
+            var totalSteps = await Task.detached {
                 AppController.estimateBuildSteps(in: dirPath)
             }.value
             var completedSteps = 0
@@ -85,11 +140,14 @@ extension AppController {
                 "cd '\(dirPath)' && \(makeExecutable) package DEBUG=1 -j\(ncpu) 2>&1"  // #15
             ], onLaunch: { [weak self] p in self?.buildProcess = p }) { [weak self] raw in
                 let line = raw.replacing(/\u{1B}\[[0-9;]*[A-Za-z]/, with: "")  // #2 — inline literal escapes SE-0401
+                self?.appendBuildLog(line)
                 guard line.hasPrefix("==>") || line.hasPrefix("> M") || line.hasPrefix("dm.pl:")
                 else { return }
                 completedSteps += 1
+                if completedSteps > totalSteps { totalSteps = completedSteps + max(5, totalSteps / 10) }
                 if totalSteps > 0 {
-                    self?.buildProgress = min(Double(completedSteps) / Double(totalSteps), 1.0)
+                    let fraction = Double(completedSteps) / Double(totalSteps)
+                    self?.buildProgress = min(fraction, Self.buildProgressSoftCap)
                 }
                 var display = line
                 if      display.hasPrefix("==> ")    { display = String(display.dropFirst(4)) }
@@ -139,8 +197,10 @@ extension AppController {
             guard !Task.isCancelled else { return }
             guard restarted else { return fail("Discord restart failed") }
 
+            lastTweakResult = BuildResultSummary(succeeded: true, date: Date())
             buildPhase = .succeeded; buildLog = ""; buildProgress = 0
-            NSSound(named: "Glass")?.play()  // audible cue for whenever you've stepped away
+            playBuildSound(success: true)
+            notifyBuildCompletion(target: "Tweak", succeeded: true, message: "Build installed.")
             scheduleReset()
         }
     }
@@ -154,6 +214,8 @@ extension AppController {
         buildTask?.cancel()
         buildProcess?.terminate()
         buildProcess = nil
+        activeProcesses.forEach { $0.terminate() }
+        activeProcesses = []
         buildPhase = .cancelled; buildLog = ""; buildProgress = 0
         activeBuildTarget = nil
         scheduleReset()
@@ -164,8 +226,16 @@ extension AppController {
         // reflects that Task's cancellation state — suppresses the generic "X failed"
         // toast that would otherwise overwrite the .cancelled state cancelBuild() just set.
         guard !Task.isCancelled else { return }
+        switch activeBuildTarget {
+        case .tweak:   lastTweakResult  = BuildResultSummary(succeeded: false, date: Date())
+        case .plugins: lastAddonsResult = BuildResultSummary(succeeded: false, date: Date())
+        case nil: break
+        }
         buildPhase = .failed(message); buildLog = ""; buildProgress = 0
-        NSSound(named: "Basso")?.play()  // audible cue for whenever you've stepped away
+        playBuildSound(success: false)
+        notifyBuildCompletion(
+            target: activeBuildTarget == .plugins ? "Addons" : "Tweak",
+            succeeded: false, message: message)
     }
 
     // Auto-dismiss a success/cancelled toast after a few seconds; failures stay until
@@ -186,6 +256,40 @@ extension AppController {
         default: break
         }
     }
+
+    func saveBuildLog() {
+        guard !buildLogFull.isEmpty else { return }
+        let panel = NSSavePanel()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        panel.nameFieldStringValue = "vbound-build-\(formatter.string(from: Date())).log"
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? buildLogFull.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func appendBuildLog(_ line: String) {
+        buildLogFull += line + "\n"
+        let limit = 300_000
+        if buildLogFull.utf8.count > limit { buildLogFull = String(buildLogFull.suffix(limit)) }
+    }
+
+    private func playBuildSound(success: Bool) {
+        guard buildSoundsEnabled else { return }
+        NSSound(named: success ? "Glass" : "Basso")?.play()  // audible cue for whenever you've stepped away
+    }
+
+    private func notifyBuildCompletion(target: String, succeeded: Bool, message: String) {
+        guard buildNotificationsEnabled, !NSApp.isActive else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "\(target) \(succeeded ? "build succeeded" : "build failed")"
+        content.body  = message
+        content.sound = nil
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    private static let buildProgressSoftCap = 0.92
 
     // Probe common Homebrew and system paths so the build works whether the user has
     // GNU make or only Apple's /usr/bin/make (#15).

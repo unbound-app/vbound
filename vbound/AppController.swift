@@ -26,10 +26,20 @@ final class AppController: @unchecked Sendable {
     var vphoneUDID:      String? = nil
     var isMounted        = false
     var isMounting       = false
+    var lastMountError:  String? = nil
+    var lastTweakResult:  BuildResultSummary? = nil
+    var lastAddonsResult: BuildResultSummary? = nil
+    var lastFailedPlugins: [FailedPlugin] = []
+    var sshTestState: SSHTestState = .idle
 
     // MARK: - Internal state (accessible from extension files)
 
     let shellBuffer = ANSILineBuffer()
+    var buildLogFull = ""
+    var lastPluginsWorkDir = ""
+    var activeProcesses: [Process] = []
+    var globalHotkeyMonitor: Any?
+    var localHotkeyMonitor:  Any?
 
     // ~/.ssh/ is created lazily here so ControlPath is always valid on first use (#8)
     static let sshControlPath: String = {
@@ -80,6 +90,7 @@ final class AppController: @unchecked Sendable {
         RunLoop.main.add(t, forMode: .common)
         pollTimer = t
         setupWindowObservers()
+        if globalHotkeyEnabled { enableGlobalHotkey() }
     }
 
     // The underlying CGWindowList enumeration in checkAndAttach() — not the timer
@@ -109,6 +120,7 @@ final class AppController: @unchecked Sendable {
         stopLogStream()
         disconnectShell()
         unmountVphone()
+        disableGlobalHotkey()
     }
 
     // MARK: - Window observers

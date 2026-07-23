@@ -42,6 +42,18 @@ extension AppController {
         return v > 0 ? v : 2000
     }
 
+    var globalHotkeyEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "globalHotkeyEnabled")
+    }
+
+    var buildSoundsEnabled: Bool {
+        UserDefaults.standard.object(forKey: "buildSoundsEnabled") as? Bool ?? true
+    }
+
+    var buildNotificationsEnabled: Bool {
+        UserDefaults.standard.object(forKey: "buildNotificationsEnabled") as? Bool ?? true
+    }
+
     var enrichedEnvironment: [String: String] {
         var env  = ProcessInfo.processInfo.environment
         let home = NSHomeDirectory()

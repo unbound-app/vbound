@@ -142,6 +142,14 @@ extension AppController {
     // and captures the HH:mm:ss.SSS portion.
     private nonisolated static let liveTsRegex = /T(\d{2}:\d{2}:\d{2}\.\d{3})/
 
+    private nonisolated static let isoDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSS"
+        f.timeZone = .current
+        return f
+    }()
+
     // Pure parse-and-filter with no actor-isolated state — called directly from the
     // readabilityHandler's background thread, not hopped to the main actor, since the
     // vast majority of lines get discarded here and shouldn't cost a main-thread round trip.
@@ -179,7 +187,8 @@ extension AppController {
         let src = category.isEmpty ? (isReact ? "JS" : "native") : "\(isReact ? "JS" : "native")/\(category)"
 
         return LogEntry(time: time, level: lvl, source: src, message: msg,
-                        subsystem: isReact ? .reactNative : .unbound)
+                        subsystem: isReact ? .reactNative : .unbound,
+                        date: Self.isoDateFormatter.date(from: ts))
     }
 
     func resolveVphoneUDID() async -> (String?, [LogEntry]) {

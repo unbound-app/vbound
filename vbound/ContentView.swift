@@ -20,6 +20,14 @@ struct ContentView: View {
     @AppStorage("showINF") private var showINF = true
     @AppStorage("showERR") private var showERR = true
     @AppStorage("showDBG") private var showDBG = true
+    @AppStorage("logFilterRegex") private var logFilterRegex = false
+    @AppStorage("logRelativeTimestamps") private var logRelativeTimestamps = false
+    @AppStorage("accentColorChoice") private var accentColorChoice = AccentChoice.system.rawValue
+    @State private var bookmarkedIDs: Set<LogEntry.ID> = []
+    @State private var scrollToBookmarkID: LogEntry.ID? = nil
+    @State private var showCommandPalette = false
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @State private var showOnboarding = false
     // Resets to true each launch/attach — auto-follow is the expected default, not a
     // sticky "stay off forever" preference (#18).
     @State private var logAutoScroll     = true
@@ -51,7 +59,30 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: manager.buildPhase.isActive)
+        .tint(AccentChoice(rawValue: accentColorChoice)?.color)
         .background(WindowAccessor(callback: configureWindow))
+        .onAppear {
+            guard !hasCompletedOnboarding else { return }
+            showOnboarding = true
+        }
+        .overlay {
+            if showOnboarding {
+                OnboardingView(isPresented: $showOnboarding)
+                    .environment(manager)
+            }
+        }
+        .overlay {
+            if showCommandPalette {
+                CommandPaletteView(isPresented: $showCommandPalette)
+                    .environment(manager)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showCommandPalette)) { _ in
+            showCommandPalette = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showOnboardingChecklist)) { _ in
+            showOnboarding = true
+        }
         .onChange(of: manager.logLines.count) { old, new in
             let delta = new - old
             guard delta > 0 else { return }
@@ -176,6 +207,14 @@ struct ContentView: View {
             .focusable(false)  // otherwise the window's default focus ring lands here and swallows the glyph
             .disabled(manager.isMounting || (!manager.isMounted && !manager.sshfsAvailable))
             .help(mountHelpText)
+            .overlay(alignment: .topTrailing) {
+                if manager.lastMountError != nil, !manager.isMounted, !manager.isMounting {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 6, height: 6)
+                        .offset(x: 2, y: -2)
+                }
+            }
             .contextMenu {
                 if manager.isMounted {
                     Button("Unmount") { manager.unmountVphone() }
@@ -320,7 +359,7 @@ struct ContentView: View {
         case .cancelled:
             resultRow(icon: "xmark.circle.fill", tint: .secondary, message: manager.buildPhase.label, showDismiss: false)
         case .failed:
-            resultRow(icon: "exclamationmark.triangle.fill", tint: .red, message: manager.buildPhase.label, showDismiss: true)
+            failedResultRow(message: manager.buildPhase.label)
         default:
             VStack(alignment: .leading, spacing: 3) {
                 if case .building = manager.buildPhase {
@@ -358,6 +397,36 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func failedResultRow(message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+            Text(message)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            Spacer()
+            if manager.activeBuildTarget == .plugins, !manager.lastFailedPlugins.isEmpty {
+                Button("Retry") { manager.retryFailedPlugins() }
+                    .buttonStyle(.link)
+                    .font(.system(size: 11))
+            }
+            if !manager.buildLogFull.isEmpty {
+                Button("Save Log…") { manager.saveBuildLog() }
+                    .buttonStyle(.link)
+                    .font(.system(size: 11))
+            }
+            Button {
+                manager.dismissBuildResult()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -545,6 +614,34 @@ struct ContentView: View {
             .buttonStyle(.borderless)
             .font(.system(size: 14))
 
+            Menu {
+                Toggle("Regex Filter", isOn: $logFilterRegex)
+                Toggle("Relative Timestamps", isOn: $logRelativeTimestamps)
+                Divider()
+                Menu("Bookmarks (\(bookmarkedEntriesOrdered.count))") {
+                    if bookmarkedEntriesOrdered.isEmpty {
+                        Text("No bookmarks in this tab")
+                    } else {
+                        ForEach(bookmarkedEntriesOrdered) { entry in
+                            Button(bookmarkMenuLabel(for: entry)) {
+                                logAutoScroll = false
+                                scrollToBookmarkID = entry.id
+                            }
+                        }
+                        Divider()
+                        Button("Clear Bookmarks") { bookmarkedIDs.removeAll() }
+                    }
+                }
+                Divider()
+                Button("Save Visible Logs…") { saveLogsToFile() }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .font(.system(size: 14))
+            .help("More log options")
+
             Divider().frame(height: 16)
 
             HStack(spacing: 6) {
@@ -603,8 +700,13 @@ struct ContentView: View {
                 scrollVersion: scrollVersion,
                 autoScroll: logAutoScroll,
                 searchQuery: logSearch,
+                useRegexFilter: logFilterRegex,
+                relativeTimestamps: logRelativeTimestamps,
+                bookmarkedIDs: bookmarkedIDs,
                 focusedEntryID: currentMatchID,
+                scrollToID: scrollToBookmarkID,
                 onFilterToSource: { entry in logSearch = entry.source },
+                onToggleBookmark: { entry in toggleBookmark(entry) },
                 onUserInteraction: { logAutoScroll = false },
                 onReachedBottom: { logAutoScroll = true }
             )
@@ -682,8 +784,20 @@ struct ContentView: View {
             default:    levelPass = true
             }
             guard levelPass else { return false }
-            return logSearch.isEmpty || entry.asString().localizedCaseInsensitiveContains(logSearch)
+            return matchesFilter(entry.asString())
         }
+    }
+
+    private func matchesFilter(_ text: String) -> Bool {
+        guard !logSearch.isEmpty else { return true }
+        guard logFilterRegex else {
+            return text.localizedCaseInsensitiveContains(logSearch)
+        }
+        guard let regex = try? NSRegularExpression(pattern: logSearch, options: .caseInsensitive) else {
+            return false
+        }
+        let ns = text as NSString
+        return regex.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)) != nil
     }
 
     private var allUnread: UnreadLevel {
@@ -975,13 +1089,24 @@ struct ContentView: View {
     private var buildHelpText: String {
         if manager.buildPhase.isRunning { return "Cancel current task" }
         if !pathValid(unboundPath)      { return "Unbound tweak path is invalid — check Settings" }
-        return "Build and install the Unbound tweak"
+        var text = "Build and install the Unbound tweak"
+        if let last = manager.lastTweakResult { text += "\n\(resultSummary(last))" }
+        return text
     }
 
     private var addonsHelpText: String {
         if manager.buildPhase.isRunning { return "A task is already running" }
         if !pathValid(unboundPluginsPath) { return "Addon workspace path is invalid — check Settings" }
-        return "Build, deploy, and reload addons"
+        var text = "Build, deploy, and reload addons"
+        if let last = manager.lastAddonsResult { text += "\n\(resultSummary(last))" }
+        return text
+    }
+
+    private func resultSummary(_ result: BuildResultSummary) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        let relative = formatter.localizedString(for: result.date, relativeTo: Date())
+        return "Last build: \(result.succeeded ? "✓" : "✗") \(relative)"
     }
 
     private var mountHelpText: String {
@@ -989,6 +1114,9 @@ struct ContentView: View {
         if manager.isMounting  { return "Mounting…" }
         if !manager.sshfsAvailable {
             return "sshfs not found — install macFUSE and sshfs-mac to mount vphone in Finder"
+        }
+        if let lastMountError = manager.lastMountError {
+            return "Mount failed: \(lastMountError)"
         }
         return "Mount vphone's filesystem in Finder"
     }
@@ -1063,6 +1191,34 @@ struct ContentView: View {
             filteredEntries.map { $0.asString() }.joined(separator: "\n"),
             forType: .string
         )
+    }
+
+    private func saveLogsToFile() {
+        let panel = NSSavePanel()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        panel.nameFieldStringValue = "vbound-logs-\(formatter.string(from: Date())).log"
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let text = filteredEntries.map { $0.asString() }.joined(separator: "\n")
+        try? text.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func toggleBookmark(_ entry: LogEntry) {
+        if bookmarkedIDs.contains(entry.id) {
+            bookmarkedIDs.remove(entry.id)
+        } else {
+            bookmarkedIDs.insert(entry.id)
+        }
+    }
+
+    private var bookmarkedEntriesOrdered: [LogEntry] {
+        filteredEntries.filter { bookmarkedIDs.contains($0.id) }
+    }
+
+    private func bookmarkMenuLabel(for entry: LogEntry) -> String {
+        let text = entry.message.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.count > 48 ? String(text.prefix(48)) + "…" : text
     }
 
     // Shortened from "Attached · vphone running" etc. — the dot already carries the

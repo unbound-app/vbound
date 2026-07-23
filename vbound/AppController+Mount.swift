@@ -1,6 +1,10 @@
 import AppKit
 import UniformTypeIdentifiers
 
+private final class MountErrorBox: @unchecked Sendable {
+    nonisolated(unsafe) var text = ""
+}
+
 extension AppController {
 
     // Fixed, visible mount point — mounting here is a manual, opt-in action rather than
@@ -80,6 +84,7 @@ extension AppController {
     func mountVphone() {
         guard !isMounted, !isMounting, let sshfsPath = AppController.sshfsPath else { return }
         isMounting = true
+        lastMountError = nil
         Task { [weak self] in
             guard let self else { return }
             // Covers the case where a previous session (or a crash) left the mount in
@@ -117,23 +122,36 @@ extension AppController {
                 AppController.mountPath
             ]
             p.environment = enrichedEnvironment
+            let errPipe = Pipe()
+            p.standardError = errPipe
+            let errBox = MountErrorBox()
+            errPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+                errBox.text += text
+            }
             do {
                 try p.run()
                 mountProcess = p
             } catch {
                 isMounting = false
+                lastMountError = error.localizedDescription
                 return
             }
 
             for _ in 0..<25 {  // ~5s at 200ms — sshfs attaches almost immediately once it does
                 if await isPathMounted(AppController.mountPath) {
                     isMounting = false; isMounted = true
+                    errPipe.fileHandleForReading.readabilityHandler = nil
                     return
                 }
                 try? await Task.sleep(for: .milliseconds(200))
             }
             isMounting = false
             isMounted = false
+            errPipe.fileHandleForReading.readabilityHandler = nil
+            let captured = errBox.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            lastMountError = captured.isEmpty ? "sshfs didn't attach — check that macFUSE is installed and the mount isn't already stale" : captured
         }
     }
 

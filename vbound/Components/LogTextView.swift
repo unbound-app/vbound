@@ -137,9 +137,11 @@ final class LogNSTextView: NSTextView {
     var entryRanges:    [(range: NSRange, entry: LogEntry)]               = []
     var timestampRanges:[(range: NSRange, fullTime: String)]              = []
     var popoverRanges:  [(range: NSRange, content: String)] = []
+    var bookmarkedIDs:  Set<LogEntry.ID> = []
 
     var onCopyLine:        ((LogEntry) -> Void)?
     var onFilterToSource:  ((LogEntry) -> Void)?
+    var onToggleBookmark:  ((LogEntry) -> Void)?
     var onUserInteraction: (() -> Void)?
     var onReachedBottom:   (() -> Void)?
 
@@ -173,6 +175,11 @@ final class LogNSTextView: NSTextView {
                                      action: #selector(filterToSourceAction), keyEquivalent: "")
         filterItem.target = self
         menu.addItem(filterItem)
+        let isBookmarked = bookmarkedIDs.contains(hit.entry.id)
+        let bookmarkItem = NSMenuItem(title: isBookmarked ? "Remove Bookmark" : "Bookmark Line",
+                                       action: #selector(toggleBookmarkAction), keyEquivalent: "")
+        bookmarkItem.target = self
+        menu.addItem(bookmarkItem)
         return menu
     }
 
@@ -186,6 +193,11 @@ final class LogNSTextView: NSTextView {
     @objc private func filterToSourceAction() {
         guard let entry = pendingMenuEntry else { return }
         onFilterToSource?(entry)
+    }
+
+    @objc private func toggleBookmarkAction() {
+        guard let entry = pendingMenuEntry else { return }
+        onToggleBookmark?(entry)
     }
 
     // Keep a single tracking area (recreated whenever AppKit requests it) so
@@ -232,8 +244,13 @@ struct LogTextView: NSViewRepresentable {
     let scrollVersion:     Int
     var autoScroll:        Bool = true
     var searchQuery:       String = ""
+    var useRegexFilter:    Bool = false
+    var relativeTimestamps: Bool = false
+    var bookmarkedIDs:      Set<LogEntry.ID> = []
     var focusedEntryID:    LogEntry.ID? = nil
+    var scrollToID:        LogEntry.ID? = nil
     var onFilterToSource:  ((LogEntry) -> Void)? = nil
+    var onToggleBookmark:  ((LogEntry) -> Void)? = nil
     var onUserInteraction: (() -> Void)? = nil
     var onReachedBottom:   (() -> Void)? = nil
 
@@ -273,6 +290,9 @@ struct LogTextView: NSViewRepresentable {
         let firstID:        LogEntry.ID?
         let lastID:         LogEntry.ID?
         let searchQuery:    String
+        let useRegexFilter: Bool
+        let relativeTimestamps: Bool
+        let bookmarkedIDs:  Set<LogEntry.ID>
         let focusedEntryID: LogEntry.ID?
     }
 
@@ -378,14 +398,19 @@ struct LogTextView: NSViewRepresentable {
             NSPasteboard.general.setString(entry.asString(), forType: .string)
         }
         tv.onFilterToSource  = onFilterToSource
+        tv.onToggleBookmark  = onToggleBookmark
         tv.onUserInteraction = onUserInteraction
         tv.onReachedBottom   = onReachedBottom
+        tv.bookmarkedIDs     = bookmarkedIDs
 
         let currentInputs = RenderInputs(
             count: entries.count,
             firstID: entries.first?.id,
             lastID: entries.last?.id,
             searchQuery: searchQuery,
+            useRegexFilter: useRegexFilter,
+            relativeTimestamps: relativeTimestamps,
+            bookmarkedIDs: bookmarkedIDs,
             focusedEntryID: focusedEntryID
         )
 
@@ -408,6 +433,14 @@ struct LogTextView: NSViewRepresentable {
             } else if focusedEntryID == nil {
                 c.lastFocusedEntryID = nil
             }
+        }
+
+        if let scrollToID, scrollToID != c.lastScrollToID,
+           let hit = tv.entryRanges.first(where: { $0.entry.id == scrollToID }) {
+            c.lastScrollToID = scrollToID
+            tv.scrollRangeToVisible(hit.range)
+        } else if scrollToID == nil {
+            c.lastScrollToID = nil
         }
 
         let shouldScroll = autoScroll && (entries.count > c.lastCount || scrollVersion != c.lastVersion)
@@ -442,6 +475,11 @@ struct LogTextView: NSViewRepresentable {
 
     // Case-insensitive NSRange occurrences of `query` within `haystack`, in NSString terms.
     private func ranges(of query: String, in haystack: String) -> [NSRange] {
+        if useRegexFilter {
+            guard let regex = try? NSRegularExpression(pattern: query, options: .caseInsensitive) else { return [] }
+            let ns = haystack as NSString
+            return regex.matches(in: haystack, range: NSRange(location: 0, length: ns.length)).map(\.range)
+        }
         let ns = haystack as NSString
         var results: [NSRange] = []
         var searchRange = NSRange(location: 0, length: ns.length)
@@ -496,7 +534,8 @@ struct LogTextView: NSViewRepresentable {
                 // Timestamp — tagged with .link so the delegate fires on click and the
                 // cursor changes to a pointing hand on hover automatically.
                 let tsStart = out.length
-                out.append(ns(String(entry.time.prefix(8)), font: monoR, color: .secondaryLabelColor))
+                let tsDisplay = relativeTimestamps ? entry.relativeTime() : String(entry.time.prefix(8))
+                out.append(ns(tsDisplay, font: monoR, color: .secondaryLabelColor))
                 let tsRange = NSRange(location: tsStart, length: out.length - tsStart)
                 out.addAttribute(.link, value: kLinkTagTimestamp, range: tsRange)
                 timestampRanges.append((range: tsRange, fullTime: entry.time))
@@ -517,7 +556,8 @@ struct LogTextView: NSViewRepresentable {
                 // Source (padded to 18 chars ≈ 106pt at 10pt mono)
                 let src    = String(entry.source.prefix(17))
                 let padded = src + String(repeating: " ", count: max(0, 18 - src.count))
-                out.append(ns(padded, font: monoS, color: .tertiaryLabelColor))
+                let isBookmarked = bookmarkedIDs.contains(entry.id)
+                out.append(ns(padded, font: monoS, color: isBookmarked ? .systemOrange : .tertiaryLabelColor))
                 out.append(ns("\t", font: monoR, color: .clear))
 
                 // Structured-data detection — NSObject/ObjC description dumps
@@ -591,6 +631,7 @@ struct LogTextView: NSViewRepresentable {
         var lastCount   = 0
         var lastVersion = 0
         var lastFocusedEntryID: LogEntry.ID?
+        var lastScrollToID: LogEntry.ID?
         var lastRenderInputs: RenderInputs?
         var hasSeenInitialLayout = false
         var ignoreInteractionUntil = Date.distantPast

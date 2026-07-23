@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import AppUpdater
+import UserNotifications
 
 // MARK: - Window delegate that quits the app on close
 
@@ -180,9 +181,11 @@ func terminateWithChildren(_ process: Process?) {
 // MARK: - App entry point
 
 extension Notification.Name {
-    static let checkForUpdates      = Notification.Name("vbound.checkForUpdates")
+    static let checkForUpdates       = Notification.Name("vbound.checkForUpdates")
     static let requestShutdownVphone = Notification.Name("vbound.requestShutdownVphone")
     static let focusLogFilter        = Notification.Name("vbound.focusLogFilter")
+    static let showCommandPalette    = Notification.Name("vbound.showCommandPalette")
+    static let showOnboardingChecklist = Notification.Name("vbound.showOnboardingChecklist")
 }
 
 @main
@@ -191,6 +194,7 @@ struct vboundApp: App {
     @State private var manager = AppController()
     @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
     @AppStorage("unboundPath")   private var unboundPath   = NSHomeDirectory() + "/Developer/loader-ios"
+    @AppStorage("unboundPluginsPath") private var unboundPluginsPath = NSHomeDirectory() + "/Developer/unbound-plugins"
     @AppStorage("autoCheckForUpdates") private var autoCheckForUpdates = true
     @AppStorage("updateCheckIntervalHours") private var updateCheckIntervalHours = 24
     @StateObject private var appUpdater: AppUpdater = {
@@ -210,6 +214,7 @@ struct vboundApp: App {
                 .environment(manager)
                 .environmentObject(appUpdater)
                 .task {
+                    _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
                     #if !DEBUG
                     if autoCheckForUpdates { appUpdater.check() }
                     // Polls in short increments rather than sleeping for the whole interval
@@ -253,6 +258,13 @@ struct vboundApp: App {
                 Button("Report an Issue…") {
                     NSWorkspace.shared.open(URL(string: "https://github.com/unbound-app/vbound/issues/new")!)
                 }
+                Button("What's New…") {
+                    NSWorkspace.shared.open(URL(string: "https://github.com/unbound-app/vbound/releases")!)
+                }
+                Divider()
+                Button("Show Setup Checklist…") {
+                    NotificationCenter.default.post(name: .showOnboardingChecklist, object: nil)
+                }
             }
             CommandMenu("Actions") {
                 // Mirrors the status strip's merged Boot/Stop button — the toolbar
@@ -268,15 +280,29 @@ struct vboundApp: App {
                 .keyboardShortcut("b", modifiers: .command)
                 .disabled(!manager.vphoneDetected && !AppController.pathValid(vphoneCliPath))
 
-                Button(manager.buildPhase.isRunning ? "Cancel Build" : "Build Tweak") {
-                    if manager.buildPhase.isRunning {
+                Button(manager.buildPhase.isRunning && manager.activeBuildTarget == .tweak ? "Cancel Build" : "Build Tweak") {
+                    if manager.buildPhase.isRunning, manager.activeBuildTarget == .tweak {
                         manager.cancelBuild()
                     } else {
                         manager.buildUnbound(in: unboundPath)
                     }
                 }
                 .keyboardShortcut("i", modifiers: .command)
-                .disabled(!manager.buildPhase.isRunning && !AppController.pathValid(unboundPath))
+                .disabled(manager.buildPhase.isRunning
+                          ? manager.activeBuildTarget != .tweak
+                          : !AppController.pathValid(unboundPath))
+
+                Button(manager.buildPhase.isRunning && manager.activeBuildTarget == .plugins ? "Cancel Addons Build" : "Build Addons") {
+                    if manager.buildPhase.isRunning, manager.activeBuildTarget == .plugins {
+                        manager.cancelBuild()
+                    } else {
+                        manager.buildPlugins(in: unboundPluginsPath)
+                    }
+                }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
+                .disabled(manager.buildPhase.isRunning
+                          ? manager.activeBuildTarget != .plugins
+                          : !AppController.pathValid(unboundPluginsPath))
 
                 Button(manager.isStreaming ? "Stop Log Stream" : "Start Log Stream") {
                     if manager.isStreaming { manager.stopLogStream() } else { manager.startLogStream() }
@@ -298,11 +324,19 @@ struct vboundApp: App {
                     NotificationCenter.default.post(name: .focusLogFilter, object: nil)
                 }
                 .keyboardShortcut("f", modifiers: .command)
+
+                Divider()
+
+                Button("Command Palette…") {
+                    NotificationCenter.default.post(name: .showCommandPalette, object: nil)
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
             }
         }
 
         Settings {
             SettingsView()
+                .environment(manager)
         }
     }
 }
