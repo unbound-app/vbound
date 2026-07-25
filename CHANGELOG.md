@@ -9,6 +9,14 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-07-25
+
+### Fixed
+
+- Addon deployment no longer fails intermittently when deploying more than two
+  addons at once — the parallel uploads now share an already-established SSH
+  connection instead of racing each other to open one.
+
 ## [1.0.0] - 2026-07-23
 
 ### Added

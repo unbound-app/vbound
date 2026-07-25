@@ -69,6 +69,17 @@ extension AppController {
         activeProcesses = []
         buildProgress = 0
         buildLog = "Deploying 0 of \(pluginDists.count) addons…"
+        // Every addon below opens its own scp+ssh with ControlMaster=auto. With no master
+        // connection established yet, deploying more than one addon at once made every one
+        // of them race to become the master over the usbmux-forwarded port — the loser(s)
+        // of that race would fail outright, which is why deploys of more than ~2 addons
+        // needed repeated manual retries. Priming the master here first means every
+        // subsequent scp/ssh just multiplexes onto it instead of racing to create it.
+        guard await run(ssh: "true", timeout: 10) else {
+            return fail("Could not connect to vphone over SSH")
+        }
+        guard !Task.isCancelled else { return }
+
         let results: [(name: String, path: String, ok: Bool)] = await withTaskGroup(of: (String, String, Bool).self) { group in
             for (name, distPath) in pluginDists {
                 group.addTask { [weak self] in
