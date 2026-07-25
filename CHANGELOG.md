@@ -9,6 +9,15 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-07-26
+
+### Fixed
+
+- Addon deployment no longer occasionally fails with "Could not connect to
+  vphone over SSH" on the first attempt right after the port forward comes up
+  — the SSH connection is now retried a few times instead of giving up after
+  a single try.
+
 ## [1.0.1] - 2026-07-25
 
 ### Fixed

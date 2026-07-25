@@ -75,7 +75,7 @@ extension AppController {
         // of that race would fail outright, which is why deploys of more than ~2 addons
         // needed repeated manual retries. Priming the master here first means every
         // subsequent scp/ssh just multiplexes onto it instead of racing to create it.
-        guard await run(ssh: "true", timeout: 10) else {
+        guard await primeSSHControlMaster() else {
             return fail("Could not connect to vphone over SSH")
         }
         guard !Task.isCancelled else { return }
@@ -126,6 +126,21 @@ extension AppController {
             playBuildSound(success: false)
             notifyBuildCompletion(target: "Addons", succeeded: false, message: "Failed: \(names)")
         }
+    }
+
+    // ensurePortForward()'s own readiness check is a raw TCP probe (nc -z) against the
+    // locally forwarded port — it can succeed before the usbmux tunnel is actually ready
+    // to carry a full SSH handshake through to the device's sshd, right after the forward
+    // first comes up. A single attempt here would then fail outright (matching the old
+    // "works on the second click" symptom); retry a few times instead so deployPlugins
+    // doesn't need a manual re-click to ride out that warm-up window.
+    private func primeSSHControlMaster() async -> Bool {
+        for attempt in 0..<3 {
+            if await run(ssh: "true", timeout: 10) { return true }
+            guard !Task.isCancelled else { return false }
+            if attempt < 2 { try? await Task.sleep(for: .milliseconds(750)) }
+        }
+        return false
     }
 
     private func deployOnePlugin(name: String, distPath: String) async -> Bool {
