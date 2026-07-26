@@ -30,14 +30,22 @@ extension AppController {
             lastPluginsWorkDir = dirPath
             lastFailedPlugins = []
             buildLog = ""; buildLogFull = ""; buildProgress = 0; buildPhase = .buildingPlugins; activeBuildTarget = .plugins
+            var buildFailureLines: [String] = []
             let built = await run(args: [
                 "/bin/zsh", "-l", "-c",
-                "cd \(Self.shellQuoted(dirPath)) && bunx ubd build"
-            ], onLaunch: { [weak self] p in self?.buildProcess = p }) { [weak self] line in
-                self?.buildLog = line
-                self?.appendBuildLog(line)
+                "cd \(Self.shellQuoted(dirPath)) && bunx ubd build 2>&1"
+            ], onLaunch: { [weak self] p in self?.buildProcess = p }) { [weak self] lines in
+                guard let self else { return }
+                for raw in lines {
+                    let line = Self.strippingANSI(raw)
+                    appendBuildLog(line)
+                    if Self.looksLikeBuildFailure(line) { buildFailureLines.append(line) }
+                    buildLog = line
+                }
             }
-            guard built else { return fail("Addon build failed") }
+            guard built else {
+                return fail(Self.buildFailureMessage(prefix: "Addon build failed", from: buildFailureLines))
+            }
             guard !Task.isCancelled else { return }
 
             let pluginDists = findPluginDists(in: dirPath)
@@ -217,7 +225,26 @@ extension AppController {
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .last { !$0.isEmpty && !noisePrefixes.contains(where: $0.hasPrefix) } ?? ""
-        return line.count > 120 ? String(line.prefix(120)) + "…" : line
+        return truncatedForDisplay(line)
+    }
+
+    private nonisolated static func truncatedForDisplay(_ line: String) -> String {
+        line.count > 120 ? String(line.prefix(120)) + "…" : line
+    }
+
+    nonisolated static func strippingANSI(_ line: String) -> String {
+        line.replacing(/\u{1B}\[[0-9;]*[A-Za-z]/, with: "")  // #2 — inline literal escapes SE-0401
+    }
+
+    private nonisolated static func looksLikeBuildFailure(_ line: String) -> Bool {
+        let markers = ["Failed to build", "command not found", "error:", "fatal error:", "make: ***"]
+        return markers.contains { line.localizedCaseInsensitiveContains($0) }
+    }
+
+    private nonisolated static func buildFailureMessage(prefix: String, from lines: [String]) -> String {
+        let summary = lines.last { $0.hasPrefix("Failed to build") } ?? lines.last
+        guard let summary, !summary.isEmpty else { return prefix }
+        return "\(prefix) — \(truncatedForDisplay(summary))"
     }
 
     func buildUnbound(in directory: String) {
@@ -227,6 +254,7 @@ extension AppController {
 
             let dirPath = (directory as NSString).expandingTildeInPath
             let ncpu    = ProcessInfo.processInfo.processorCount
+            var buildFailureLines: [String] = []
 
             buildLog = ""; buildLogFull = ""; buildProgress = 0; buildPhase = .building; activeBuildTarget = .tweak
             // Off the main thread: this walks the entire source tree with
@@ -241,24 +269,30 @@ extension AppController {
             let built = await run(args: [
                 "/bin/zsh", "-l", "-c",
                 "cd '\(dirPath)' && \(makeExecutable) package DEBUG=1 -j\(ncpu) 2>&1"  // #15
-            ], onLaunch: { [weak self] p in self?.buildProcess = p }) { [weak self] raw in
-                let line = raw.replacing(/\u{1B}\[[0-9;]*[A-Za-z]/, with: "")  // #2 — inline literal escapes SE-0401
-                self?.appendBuildLog(line)
-                guard line.hasPrefix("==>") || line.hasPrefix("> M") || line.hasPrefix("dm.pl:")
-                else { return }
-                completedSteps += 1
-                if completedSteps > totalSteps { totalSteps = completedSteps + max(5, totalSteps / 10) }
-                if totalSteps > 0 {
-                    let fraction = Double(completedSteps) / Double(totalSteps)
-                    self?.buildProgress = min(fraction, Self.buildProgressSoftCap)
+            ], onLaunch: { [weak self] p in self?.buildProcess = p }) { [weak self] lines in
+                guard let self else { return }
+                for raw in lines {
+                    let line = Self.strippingANSI(raw)
+                    appendBuildLog(line)
+                    if Self.looksLikeBuildFailure(line) { buildFailureLines.append(line) }
+                    guard line.hasPrefix("==>") || line.hasPrefix("> M") || line.hasPrefix("dm.pl:")
+                    else { continue }
+                    completedSteps += 1
+                    if completedSteps > totalSteps { totalSteps = completedSteps + max(5, totalSteps / 10) }
+                    if totalSteps > 0 {
+                        let fraction = Double(completedSteps) / Double(totalSteps)
+                        buildProgress = min(fraction, Self.buildProgressSoftCap)
+                    }
+                    var display = line
+                    if      display.hasPrefix("==> ")    { display = String(display.dropFirst(4)) }
+                    else if display.hasPrefix("> ")       { display = String(display.dropFirst(2)) }
+                    else if display.hasPrefix("dm.pl: ") { display = String(display.dropFirst(7)) }
+                    buildLog = display
                 }
-                var display = line
-                if      display.hasPrefix("==> ")    { display = String(display.dropFirst(4)) }
-                else if display.hasPrefix("> ")       { display = String(display.dropFirst(2)) }
-                else if display.hasPrefix("dm.pl: ") { display = String(display.dropFirst(7)) }
-                self?.buildLog = display
             }
-            guard built else { return fail("Build failed") }
+            guard built else {
+                return fail(Self.buildFailureMessage(prefix: "Build failed", from: buildFailureLines))
+            }
             // Covers the race where cancelBuild() fires just as the process was already
             // exiting on its own (terminate() has no effect after that) — without this,
             // a cancellation landing in that narrow window would fall through and keep

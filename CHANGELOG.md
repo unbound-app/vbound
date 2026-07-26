@@ -9,6 +9,20 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-07-26
+
+### Fixed
+
+- "Addon build failed" now names the addon that actually failed and why,
+  instead of reporting nothing while the last visible log line was a success
+  message — the addon build's error output was being discarded entirely.
+- The saved build log is no longer lossy: it kept only the last line of each
+  chunk of output, so most of both build steps' output never reached it.
+- Tweak build progress no longer undercounts, for the same reason — build
+  steps that weren't at the end of a chunk of output were never counted.
+- Build output split across a read boundary is no longer mangled into a
+  broken line.
+
 ## [1.0.3] - 2026-07-26
 
 ### Fixed

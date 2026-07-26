@@ -1,5 +1,24 @@
 import AppKit
 
+nonisolated final class ProcessLineBuffer: @unchecked Sendable {
+    private var pending = ""
+
+    func take(_ chunk: String) -> [String] {
+        pending += chunk
+        var parts = pending.components(separatedBy: "\n")
+        pending = parts.removeLast()
+        return parts
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    func flush() -> [String] {
+        let rest = pending.trimmingCharacters(in: .whitespacesAndNewlines)
+        pending = ""
+        return rest.isEmpty ? [] : [rest]
+    }
+}
+
 extension AppController {
 
     // Device SSH/sudo password — configurable in Settings, defaults to vphone's stock "alpine".
@@ -67,7 +86,7 @@ extension AppController {
         workingDirectory: URL? = nil,
         timeout: TimeInterval? = nil,
         onLaunch: ((Process) -> Void)? = nil,
-        onOutput: ((String) -> Void)? = nil
+        onOutput: (([String]) -> Void)? = nil
     ) async -> Bool {
         await withCheckedContinuation { continuation in
             let p = Process()
@@ -76,20 +95,27 @@ extension AppController {
             p.environment         = enrichedEnvironment
             p.currentDirectoryURL = workingDirectory
 
-            if let onOutput {
-                let pipe = Pipe()
+            let outputPipe: Pipe? = onOutput == nil ? nil : Pipe()
+            let buffer = ProcessLineBuffer()
+            if let onOutput, let pipe = outputPipe {
                 p.standardOutput = pipe
                 pipe.fileHandleForReading.readabilityHandler = { handle in
                     let data = handle.availableData
                     guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-                    let lines = text.components(separatedBy: .newlines)
-                        .map { $0.trimmingCharacters(in: .whitespaces) }
-                        .filter { !$0.isEmpty }
-                    if let last = lines.last { DispatchQueue.main.async { onOutput(last) } }
+                    let lines = buffer.take(text)
+                    guard !lines.isEmpty else { return }
+                    DispatchQueue.main.async { onOutput(lines) }
                 }
             }
 
             p.terminationHandler = { proc in
+                if let outputPipe, let onOutput {
+                    outputPipe.fileHandleForReading.readabilityHandler = nil
+                    let tail = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                    var lines = tail.isEmpty ? [] : buffer.take(String(decoding: tail, as: UTF8.self))
+                    lines += buffer.flush()
+                    if !lines.isEmpty { DispatchQueue.main.async { onOutput(lines) } }
+                }
                 continuation.resume(returning: proc.terminationStatus == 0)
             }
             do {
