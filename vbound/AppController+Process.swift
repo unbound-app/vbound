@@ -129,6 +129,51 @@ extension AppController {
         ], timeout: timeout, onLaunch: onLaunch)
     }
 
+    func runCapturingOutput(
+        args: [String],
+        timeout: TimeInterval? = nil,
+        onLaunch: ((Process) -> Void)? = nil
+    ) async -> (ok: Bool, output: String) {
+        await withCheckedContinuation { continuation in
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            p.arguments     = args
+            p.environment   = enrichedEnvironment
+
+            let pipe = Pipe()
+            p.standardOutput = pipe
+            p.standardError  = pipe
+
+            let q = DispatchQueue(label: "vbound.run-output")
+            var buf = Data()
+
+            pipe.fileHandleForReading.readabilityHandler = { handle in
+                let d = handle.availableData
+                guard !d.isEmpty else { return }
+                q.async { buf.append(d) }
+            }
+            p.terminationHandler = { proc in
+                pipe.fileHandleForReading.readabilityHandler = nil
+                let tail = pipe.fileHandleForReading.readDataToEndOfFile()
+                let succeeded = proc.terminationStatus == 0
+                q.async {
+                    if !tail.isEmpty { buf.append(tail) }
+                    continuation.resume(returning: (succeeded, String(data: buf, encoding: .utf8) ?? ""))
+                }
+            }
+            do {
+                try p.run()
+                onLaunch?(p)
+                if let timeout {
+                    Task {
+                        try? await Task.sleep(for: .seconds(timeout))
+                        if p.isRunning { p.terminate() }
+                    }
+                }
+            } catch { continuation.resume(returning: (false, "")) }
+        }
+    }
+
     func runCapture(args: [String], timeout: TimeInterval? = nil) async -> String {
         await withCheckedContinuation { continuation in
             let p = Process()
@@ -168,6 +213,14 @@ extension AppController {
         }
     }
 
+    func closeSSHControlMaster() async {
+        _ = await run(args: [
+            "ssh", "-O", "exit",
+            "-o", "ControlPath=\(AppController.sshControlPath)",
+            "mobile@127.0.0.1"
+        ], timeout: 5)
+    }
+
     @discardableResult
     func ensurePortForward() async -> Bool {
         let reachable = await run(args: ["nc", "-z", "-w", "1", "127.0.0.1", "2222"])
@@ -175,6 +228,7 @@ extension AppController {
 
         forwardProcess?.terminate()
         forwardProcess = nil
+        await closeSSHControlMaster()
         try? await Task.sleep(for: .milliseconds(250))
 
         var udid = vphoneUDID

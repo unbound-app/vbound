@@ -134,7 +134,7 @@ extension AppController {
     // first comes up. A single attempt here would then fail outright (matching the old
     // "works on the second click" symptom); retry a few times instead so deployPlugins
     // doesn't need a manual re-click to ride out that warm-up window.
-    private func primeSSHControlMaster() async -> Bool {
+    func primeSSHControlMaster() async -> Bool {
         for attempt in 0..<3 {
             if await run(ssh: "true", timeout: 10) { return true }
             guard !Task.isCancelled else { return false }
@@ -168,6 +168,56 @@ extension AppController {
             onLaunch: { [weak self] p in self?.activeProcesses.append(p) }
         )
         return deployed && !Task.isCancelled
+    }
+
+    private func uploadDeb(from localPath: String, to remotePath: String) async -> String? {
+        var lastError = ""
+        for attempt in 0..<3 {
+            guard !Task.isCancelled else { return nil }
+            if attempt > 0 {
+                buildLog = "Retrying upload (\(attempt + 1)/3)…"
+                await closeSSHControlMaster()
+                guard await ensurePortForward() else {
+                    lastError = "could not reach vphone over SSH"
+                    continue
+                }
+            }
+            guard await primeSSHControlMaster() else {
+                lastError = "could not open an SSH session to vphone"
+                continue
+            }
+            guard !Task.isCancelled else { return nil }
+
+            let (uploaded, output) = await runCapturingOutput(args: [
+                "sshpass", "-p", sshPassword, "scp",
+                "-P", "2222",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "PubkeyAuthentication=no",
+                "-o", "ConnectTimeout=5",
+                "-o", "ServerAliveInterval=5",
+                "-o", "ServerAliveCountMax=2",
+                "-o", "ControlMaster=auto",
+                "-o", "ControlPath=\(AppController.sshControlPath)",  // #8
+                "-o", "ControlPersist=60",
+                localPath, "mobile@127.0.0.1:\(remotePath)"
+            ], timeout: 180, onLaunch: { [weak self] p in self?.buildProcess = p })
+            if uploaded { return nil }
+
+            appendBuildLog(output)
+            lastError = Self.lastMeaningfulLine(of: output)
+            if attempt < 2 { try? await Task.sleep(for: .milliseconds(750)) }
+        }
+        return lastError
+    }
+
+    private nonisolated static func lastMeaningfulLine(of output: String) -> String {
+        let noisePrefixes = ["Warning: Permanently added", "Pseudo-terminal", "Connection to "]
+        let line = output
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .last { !$0.isEmpty && !noisePrefixes.contains(where: $0.hasPrefix) } ?? ""
+        return line.count > 120 ? String(line.prefix(120)) + "…" : line
     }
 
     func buildUnbound(in directory: String) {
@@ -223,18 +273,9 @@ extension AppController {
             guard !Task.isCancelled else { return }
 
             buildPhase = .uploading; buildLog = ""; buildProgress = 0
-            let uploaded = await run(args: [
-                "sshpass", "-p", sshPassword, "scp",
-                "-P", "2222",
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                "-o", "PubkeyAuthentication=no",
-                "-o", "ControlMaster=auto",
-                "-o", "ControlPath=\(AppController.sshControlPath)",  // #8
-                "-o", "ControlPersist=60",
-                debPath, "mobile@127.0.0.1:\(remoteDeb)"
-            ], onLaunch: { [weak self] p in self?.buildProcess = p })
-            guard uploaded else { return fail("Upload failed") }
+            if let uploadError = await uploadDeb(from: debPath, to: remoteDeb) {
+                return fail(uploadError.isEmpty ? "Upload failed" : "Upload failed — \(uploadError)")
+            }
             guard !Task.isCancelled else { return }
 
             buildPhase = .installing

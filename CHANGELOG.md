@@ -9,6 +9,21 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-07-26
+
+### Fixed
+
+- Tweak deployment no longer occasionally fails with "Upload failed" — the
+  upload now waits for a working SSH connection before starting and retries a
+  few times instead of giving up after a single attempt.
+- A dropped connection to the vphone no longer leaves a stale shared SSH
+  session behind, which could make the next upload or command fail even though
+  the device was reachable again.
+- "Upload failed" now reports the actual `scp` error instead of nothing, and
+  the full output is included in the saved build log.
+- A stalled upload now times out and retries instead of hanging the build
+  indefinitely.
+
 ## [1.0.2] - 2026-07-26
 
 ### Fixed
