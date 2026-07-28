@@ -213,17 +213,37 @@ extension AppController {
         }
 
         var diag: [LogEntry] = [hdr(">> probing \(devices.count) device(s):")]
+        var candidates: [VphoneDevice] = []
         for device in devices {
             let identifier  = (device["Identifier"]  as? String) ?? (device["UniqueDeviceID"] as? String) ?? ""
             let productType = (device["ProductType"] as? String) ?? ""
             guard !identifier.isEmpty else { continue }
             diag.append(hdr("   \(identifier)  →  \(productType.isEmpty ? "(no response)" : productType)"))
             if productType == "iPhone99,11" {
-                await MainActor.run { self.vphoneUDID = identifier }  // #10
-                return (identifier, [])
+                candidates.append(VphoneDevice(id: identifier, productType: productType))
             }
+        }
+        await MainActor.run { self.vphoneCandidates = candidates }
+        if let selected = candidates.first(where: { $0.id == selectedVphoneUDID }) {
+            await MainActor.run { self.vphoneUDID = selected.id }
+            return (selected.id, [])
+        }
+        if candidates.count == 1, let device = candidates.first {
+            await MainActor.run { self.selectVphone(device.id) }
+            return (device.id, [])
+        }
+        if candidates.count > 1 {
+            diag.append(err("multiple vphone devices found — choose one from the device menu"))
+            return (nil, diag)
         }
         diag.append(err("no iPhone99,11 found among connected devices"))
         return (nil, diag)
+    }
+
+    func refreshVphoneDevices() {
+        Task { [weak self] in
+            guard let self else { return }
+            _ = await resolveVphoneUDID()
+        }
     }
 }

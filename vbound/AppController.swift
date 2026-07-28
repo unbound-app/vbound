@@ -24,6 +24,8 @@ final class AppController: @unchecked Sendable {
     var isLaunchingDiscord = false
     var bootedVphone     = false
     var vphoneUDID:      String? = nil
+    var vphoneCandidates: [VphoneDevice] = []
+    var selectedVphoneUDID: String? = UserDefaults.standard.string(forKey: "selectedVphoneUDID")
     var isMounted        = false
     var isMounting       = false
     var lastMountError:  String? = nil
@@ -62,6 +64,21 @@ final class AppController: @unchecked Sendable {
     var shellInputHandle: FileHandle?
     var shellAutoReconnect = false
     var terminatingDelegate: TerminatingWindowDelegate?
+
+    func selectVphone(_ udid: String) {
+        let changed = vphoneUDID != nil && vphoneUDID != udid
+        selectedVphoneUDID = udid
+        vphoneUDID = udid
+        UserDefaults.standard.set(udid, forKey: "selectedVphoneUDID")
+        if changed {
+            stopLogStream()
+            disconnectShell()
+            forwardProcess?.terminate()
+            forwardProcess = nil
+            Task { [weak self] in await self?.closeSSHControlMaster() }
+        }
+        updateWindowTitle()
+    }
 
     // MARK: - Private state (window attachment only)
 
@@ -311,7 +328,22 @@ final class AppController: @unchecked Sendable {
         guard let window = ourWindow,
               let screenHeight = NSScreen.screens.first?.frame.height else { return }
         let appkitY = screenHeight - vphoneFrame.minY - window.frame.height
-        let target  = NSPoint(x: vphoneFrame.maxX, y: appkitY)
+        let phoneFrame = CGRect(
+            x: vphoneFrame.minX,
+            y: screenHeight - vphoneFrame.maxY,
+            width: vphoneFrame.width,
+            height: vphoneFrame.height
+        )
+        let screen = NSScreen.screens.first { $0.frame.contains(CGPoint(x: phoneFrame.midX, y: phoneFrame.midY)) }
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+        guard let screen else { return }
+        let visible = screen.visibleFrame
+        let right = phoneFrame.maxX
+        let left = phoneFrame.minX - window.frame.width
+        let x = right + window.frame.width <= visible.maxX ? right : max(visible.minX, left)
+        let y = min(max(visible.minY, appkitY), visible.maxY - window.frame.height)
+        let target = NSPoint(x: x, y: y)
         if window.frame.origin != target { window.setFrameOrigin(target) }
         markAttached()
     }

@@ -27,10 +27,13 @@ extension AppController {
             if !isStreaming { startLogStream() }
 
             let dirPath = (directory as NSString).expandingTildeInPath
+            let addonNames = findAddonNames(in: dirPath)
             lastPluginsWorkDir = dirPath
             lastFailedPlugins = []
             buildLog = ""; buildLogFull = ""; buildProgress = 0; buildPhase = .buildingPlugins; activeBuildTarget = .plugins
             var buildFailureLines: [String] = []
+            var builtAddonNames = Set<String>()
+            var skippedAddonNames = Set<String>()
             let built = await run(args: [
                 "/bin/zsh", "-l", "-c",
                 "cd \(Self.shellQuoted(dirPath)) && bunx ubd build 2>&1"
@@ -40,7 +43,31 @@ extension AppController {
                     let line = Self.strippingANSI(raw)
                     appendBuildLog(line)
                     if Self.looksLikeBuildFailure(line) { buildFailureLines.append(line) }
-                    buildLog = line
+                    if let name = Self.addonBuildStarting(in: line) {
+                        let position = min(builtAddonNames.count + skippedAddonNames.count + 1, max(addonNames.count, 1))
+                        buildLog = "Building addon \(position)/\(max(addonNames.count, 1)): \(name)"
+                    } else if let name = Self.addonBuildFinished(in: line) {
+                        builtAddonNames.insert(name)
+                        if !addonNames.isEmpty {
+                            let completed = builtAddonNames.count + skippedAddonNames.count
+                            buildProgress = Double(completed) / Double(addonNames.count)
+                            buildLog = "Built addon \(completed)/\(addonNames.count): \(name)"
+                        } else {
+                            buildLog = "Built addon: \(name)"
+                        }
+                    } else if let name = Self.addonBuildSkipped(in: line) {
+                        skippedAddonNames.insert(name)
+                        if !addonNames.isEmpty {
+                            let completed = builtAddonNames.count + skippedAddonNames.count
+                            buildProgress = Double(completed) / Double(addonNames.count)
+                            buildLog = "Skipped static addon \(completed)/\(addonNames.count): \(name)"
+                        } else {
+                            buildLog = "Skipped static addon: \(name)"
+                        }
+                    } else if line == "All addons built." {
+                        buildProgress = 1
+                        buildLog = "Built \(builtAddonNames.count) addon(s), skipped \(skippedAddonNames.count) static"
+                    }
                 }
             }
             guard built else {
@@ -77,32 +104,18 @@ extension AppController {
         activeProcesses = []
         buildProgress = 0
         buildLog = "Deploying 0 of \(pluginDists.count) addons…"
-        // Every addon below opens its own scp+ssh with ControlMaster=auto. With no master
-        // connection established yet, deploying more than one addon at once made every one
-        // of them race to become the master over the usbmux-forwarded port — the loser(s)
-        // of that race would fail outright, which is why deploys of more than ~2 addons
-        // needed repeated manual retries. Priming the master here first means every
-        // subsequent scp/ssh just multiplexes onto it instead of racing to create it.
         guard await primeSSHControlMaster() else {
             return fail("Could not connect to vphone over SSH")
         }
         guard !Task.isCancelled else { return }
 
-        let results: [(name: String, path: String, ok: Bool)] = await withTaskGroup(of: (String, String, Bool).self) { group in
-            for (name, distPath) in pluginDists {
-                group.addTask { [weak self] in
-                    guard let self else { return (name, distPath, false) }
-                    let ok = await self.deployOnePlugin(name: name, distPath: distPath)
-                    return (name, distPath, ok)
-                }
-            }
-            var collected: [(String, String, Bool)] = []
-            for await result in group {
-                collected.append(result)
-                buildProgress = Double(collected.count) / Double(pluginDists.count)
-                buildLog = "Deploying \(collected.count) of \(pluginDists.count) addons…"
-            }
-            return collected
+        var results: [(name: String, path: String, ok: Bool)] = []
+        for (index, plugin) in pluginDists.enumerated() {
+            guard !Task.isCancelled else { return }
+            buildLog = "Deploying addon \(index + 1)/\(pluginDists.count): \(plugin.name)"
+            let ok = await deployOnePlugin(name: plugin.name, distPath: plugin.path)
+            results.append((plugin.name, plugin.path, ok))
+            buildProgress = Double(results.count) / Double(pluginDists.count)
         }
         guard !Task.isCancelled else { return }
 
@@ -117,7 +130,10 @@ extension AppController {
         }
 
         buildPhase = .restarting
-        let restarted = await restartDiscord()
+        let restarted = await runBuildSSH(
+            "echo '\(sshPassword)' | sudo -S killall -9 Discord; uiopen --bundleid com.hammerandchisel.discord",
+            label: "restarting Discord"
+        )
         guard !Task.isCancelled else { return }
         guard restarted else { return fail("Discord restart failed") }
 
@@ -152,30 +168,40 @@ extension AppController {
     }
 
     private func deployOnePlugin(name: String, distPath: String) async -> Bool {
-        let stagingPath = "/tmp/vbound-plugin-\(UUID().uuidString)"
-        let uploaded = await run(args: [
-            "sshpass", "-p", sshPassword, "scp",
-            "-r",
-            "-P", "2222",
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "PubkeyAuthentication=no",
-            "-o", "ConnectTimeout=5",
-            "-o", "ServerAliveInterval=5",
-            "-o", "ServerAliveCountMax=2",
-            "-o", "ControlMaster=auto",
-            "-o", "ControlPath=\(AppController.sshControlPath)",
-            "-o", "ControlPersist=60",
-            distPath, "mobile@127.0.0.1:\(stagingPath)"
-        ], timeout: 20, onLaunch: { [weak self] p in self?.activeProcesses.append(p) })
-        guard uploaded, !Task.isCancelled else { return false }
+        for attempt in 1...3 {
+            guard !Task.isCancelled else { return false }
+            if attempt > 1 {
+                buildLog = "Retrying addon \(name) (\(attempt)/3)…"
+                await closeSSHControlMaster()
+                guard await ensurePortForward(), await primeSSHControlMaster() else { continue }
+                try? await Task.sleep(for: .milliseconds(700))
+            }
+            let stagingPath = "/tmp/vbound-plugin-\(UUID().uuidString)"
+            let uploaded = await run(args: [
+                "sshpass", "-p", sshPassword, "scp",
+                "-r",
+                "-P", "2222",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "PubkeyAuthentication=no",
+                "-o", "ConnectTimeout=8",
+                "-o", "ServerAliveInterval=5",
+                "-o", "ServerAliveCountMax=3",
+                "-o", "ControlMaster=auto",
+                "-o", "ControlPath=\(AppController.sshControlPath)",
+                "-o", "ControlPersist=60",
+                distPath, "mobile@127.0.0.1:\(stagingPath)"
+            ], timeout: 45, onLaunch: { [weak self] p in self?.activeProcesses.append(p) })
+            guard uploaded, !Task.isCancelled else { continue }
 
-        let deployed = await run(
-            ssh: pluginDeploymentCommand(name: name, stagingPath: stagingPath),
-            timeout: 15,
-            onLaunch: { [weak self] p in self?.activeProcesses.append(p) }
-        )
-        return deployed && !Task.isCancelled
+            let deployed = await run(
+                ssh: pluginDeploymentCommand(name: name, stagingPath: stagingPath),
+                timeout: 30,
+                onLaunch: { [weak self] p in self?.activeProcesses.append(p) }
+            )
+            if deployed { return true }
+        }
+        return false
     }
 
     private func uploadDeb(from localPath: String, to remotePath: String) async -> String? {
@@ -313,15 +339,18 @@ extension AppController {
             guard !Task.isCancelled else { return }
 
             buildPhase = .installing
-            let installed = await run(
-                ssh: "echo '\(sshPassword)' | sudo -S dpkg -i '\(remoteDeb)'",
-                onLaunch: { [weak self] p in self?.buildProcess = p }
+            let installed = await runBuildSSH(
+                "echo '\(sshPassword)' | sudo -S dpkg -i '\(remoteDeb)'",
+                label: "installing the tweak"
             )
             guard installed else { return fail("Install failed") }
             guard !Task.isCancelled else { return }
 
             buildPhase = .restarting
-            let restarted = await restartDiscord()
+            let restarted = await runBuildSSH(
+                "echo '\(sshPassword)' | sudo -S killall -9 Discord; uiopen --bundleid com.hammerandchisel.discord",
+                label: "restarting Discord"
+            )
             guard !Task.isCancelled else { return }
             guard restarted else { return fail("Discord restart failed") }
 
@@ -331,6 +360,22 @@ extension AppController {
             notifyBuildCompletion(target: "Tweak", succeeded: true, message: "Build installed.")
             scheduleReset()
         }
+    }
+
+    private func runBuildSSH(_ command: String, label: String) async -> Bool {
+        for attempt in 1...3 {
+            guard !Task.isCancelled else { return false }
+            if attempt > 1 {
+                buildLog = "Retrying \(label) (\(attempt)/3)…"
+                await closeSSHControlMaster()
+                guard await ensurePortForward(), await primeSSHControlMaster() else { continue }
+            }
+            if await run(ssh: command, timeout: 30, onLaunch: { [weak self] p in self?.buildProcess = p }) {
+                return true
+            }
+            if attempt < 3 { try? await Task.sleep(for: .milliseconds(700)) }
+        }
+        return false
     }
 
     // Terminates whichever child process the pipeline is currently waiting on and marks
@@ -472,17 +517,7 @@ extension AppController {
     }
 
     private func findPluginDists(in directory: String) -> [(name: String, path: String)] {
-        let pluginsDirectory = URL(fileURLWithPath: directory).appending(path: "plugins")
-        guard let pluginDirectories = try? FileManager.default.contentsOfDirectory(
-            at: pluginsDirectory,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return [] }
-
-        return pluginDirectories.compactMap { pluginDirectory in
-            guard (try? pluginDirectory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
-                return nil
-            }
+        pluginDirectories(in: directory).compactMap { pluginDirectory in
             let distDirectory = pluginDirectory.appending(path: "dist")
             guard (try? distDirectory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
                 return nil
@@ -490,6 +525,40 @@ extension AppController {
             return (pluginDirectory.lastPathComponent, distDirectory.path)
         }
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private func findAddonNames(in directory: String) -> [String] {
+        pluginDirectories(in: directory)
+            .filter { FileManager.default.fileExists(atPath: $0.appending(path: "manifest.json").path) }
+            .map(\.lastPathComponent)
+    }
+
+    private func pluginDirectories(in directory: String) -> [URL] {
+        let pluginsDirectory = URL(fileURLWithPath: directory).appending(path: "plugins")
+        guard let pluginDirectories = try? FileManager.default.contentsOfDirectory(
+            at: pluginsDirectory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+        return pluginDirectories
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    private nonisolated static func addonBuildStarting(in line: String) -> String? {
+        guard line.hasPrefix("Building "), line.hasSuffix("…") else { return nil }
+        return String(line.dropFirst("Building ".count).dropLast())
+    }
+
+    private nonisolated static func addonBuildFinished(in line: String) -> String? {
+        guard line.hasPrefix("Built "), line.hasSuffix(".") else { return nil }
+        return String(line.dropFirst("Built ".count).dropLast())
+    }
+
+    private nonisolated static func addonBuildSkipped(in line: String) -> String? {
+        let suffix = " (static addon)."
+        guard line.hasPrefix("Skipping "), line.hasSuffix(suffix) else { return nil }
+        return String(line.dropFirst("Skipping ".count).dropLast(suffix.count))
     }
 
     private func pluginDeploymentCommand(name: String, stagingPath: String) -> String {

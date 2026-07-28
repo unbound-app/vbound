@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct SettingsView: View {
     @Environment(AppController.self) private var manager
@@ -15,6 +16,7 @@ struct SettingsView: View {
         "skippedUpdateVersion",
         "globalHotkeyEnabled", "buildSoundsEnabled", "buildNotificationsEnabled",
         "accentColorChoice",
+        "selectedVphoneUDID",
     ]
 
     var body: some View {
@@ -26,6 +28,8 @@ struct SettingsView: View {
                     .tabItem { Label("Automation", systemImage: "bolt") }
                 AdvancedSettingsView()
                     .tabItem { Label("Advanced", systemImage: "slider.horizontal.3") }
+                ReadinessSettingsView()
+                    .tabItem { Label("Readiness", systemImage: "checklist") }
             }
 
             Divider()
@@ -127,6 +131,14 @@ private struct GeneralSettingsView: View {
 
     @ViewBuilder
     private var testConnectionButton: some View {
+        SSHTestStatusView(manager: manager)
+    }
+}
+
+private struct SSHTestStatusView: View {
+    let manager: AppController
+
+    var body: some View {
         switch manager.sshTestState {
         case .idle:
             Button("Test Connection") { manager.testSSHConnection() }
@@ -236,6 +248,108 @@ private struct AdvancedSettingsView: View {
         }
         .formStyle(.grouped)
         .padding(.top, 8)
+    }
+}
+
+private struct ReadinessItem: Identifiable {
+    let id: String
+    let title: String
+    let detail: String
+    let isReady: Bool
+    let repairCommand: String?
+}
+
+private struct ReadinessSettingsView: View {
+    @Environment(AppController.self) private var manager
+    @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
+    @AppStorage("unboundPath") private var unboundPath = NSHomeDirectory() + "/Developer/loader-ios"
+    @AppStorage("unboundPluginsPath") private var unboundPluginsPath = NSHomeDirectory() + "/Developer/unbound-plugins"
+    @State private var items: [ReadinessItem] = []
+    @State private var isChecking = false
+
+    var body: some View {
+        Form {
+            Section("Development Readiness") {
+                if isChecking && items.isEmpty {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Checking this Mac…").foregroundStyle(.secondary)
+                    }
+                } else {
+                    ForEach(items) { item in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: item.isReady ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundStyle(item.isReady ? .green : .orange)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.title)
+                                Text(item.detail)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if let repairCommand = item.repairCommand, !item.isReady {
+                                Button("Copy Fix") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(repairCommand, forType: .string)
+                                }
+                                .buttonStyle(.link)
+                                .font(.footnote)
+                            }
+                        }
+                    }
+                }
+                Button(isChecking ? "Checking…" : "Refresh") { check() }
+                    .disabled(isChecking)
+            }
+
+            Section("Connection") {
+                HStack {
+                    Text(manager.vphoneDetected ? "vphone is running" : "vphone is not running")
+                    Spacer()
+                    SSHTestStatusView(manager: manager)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .padding(.top, 8)
+        .task { check() }
+    }
+
+    private func check() {
+        guard !isChecking else { return }
+        isChecking = true
+        Task {
+            let expandedVphone = (vphoneCliPath as NSString).expandingTildeInPath
+            let expandedTweak = (unboundPath as NSString).expandingTildeInPath
+            let expandedAddons = (unboundPluginsPath as NSString).expandingTildeInPath
+            async let pymobiledevice3 = manager.runCapture(args: ["which", "pymobiledevice3"], timeout: 5)
+            async let sshpass = manager.runCapture(args: ["which", "sshpass"], timeout: 5)
+            async let bunx = manager.runCapture(args: ["which", "bunx"], timeout: 5)
+            async let gmake = manager.runCapture(args: ["which", "gmake"], timeout: 5)
+            async let make = manager.runCapture(args: ["which", "make"], timeout: 5)
+            async let ubd = manager.run(
+                args: ["bunx", "ubd", "--version"],
+                workingDirectory: URL(fileURLWithPath: expandedAddons),
+                timeout: 10
+            )
+            let hasPymobiledevice3 = !(await pymobiledevice3).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let hasSshpass = !(await sshpass).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let hasBunx = !(await bunx).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let hasGmake = !(await gmake).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let hasSystemMake = !(await make).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let hasMake = hasGmake || hasSystemMake
+            let hasUbd = await ubd
+            items = [
+                ReadinessItem(id: "vphone", title: "vphone-cli", detail: expandedVphone, isReady: AppController.pathValid(expandedVphone), repairCommand: nil),
+                ReadinessItem(id: "tweak", title: "Unbound tweak workspace", detail: expandedTweak, isReady: FileManager.default.fileExists(atPath: (expandedTweak as NSString).appendingPathComponent("Makefile")), repairCommand: nil),
+                ReadinessItem(id: "addons", title: "Addon workspace", detail: expandedAddons, isReady: FileManager.default.fileExists(atPath: (expandedAddons as NSString).appendingPathComponent("plugins")), repairCommand: nil),
+                ReadinessItem(id: "pymobiledevice3", title: "pymobiledevice3", detail: hasPymobiledevice3 ? "Ready" : "Required for device discovery and log streaming", isReady: hasPymobiledevice3, repairCommand: "pipx install pymobiledevice3"),
+                ReadinessItem(id: "sshpass", title: "sshpass", detail: hasSshpass ? "Ready" : "Required for SSH deployment", isReady: hasSshpass, repairCommand: "brew install sshpass"),
+                ReadinessItem(id: "make", title: "make", detail: hasMake ? "Ready" : "Required to package the tweak", isReady: hasMake, repairCommand: "xcode-select --install"),
+                ReadinessItem(id: "bunx", title: "bunx ubd", detail: hasUbd ? "Ready" : hasBunx ? "The addon workspace cannot run ubd" : "Required to build addons", isReady: hasUbd, repairCommand: hasBunx ? "bun install" : "curl -fsSL https://bun.sh/install | bash"),
+            ]
+            isChecking = false
+        }
     }
 }
 

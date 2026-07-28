@@ -491,6 +491,22 @@ struct ContentView: View {
                     NSPasteboard.general.setString(udid, forType: .string)
                 }
             }
+            Divider()
+            Button("Find Connected Devices") {
+                manager.refreshVphoneDevices()
+            }
+            .disabled(manager.buildPhase.isRunning)
+            if !manager.vphoneCandidates.isEmpty {
+                Picker("Active vphone", selection: Binding(
+                    get: { manager.selectedVphoneUDID ?? "" },
+                    set: { manager.selectVphone($0) }
+                )) {
+                    ForEach(manager.vphoneCandidates) { device in
+                        Text(device.label).tag(device.id)
+                    }
+                }
+                .disabled(manager.buildPhase.isRunning)
+            }
         } label: {
             HStack(spacing: 6) {
                 Circle()
@@ -648,7 +664,7 @@ struct ContentView: View {
             failedResultRow(message: manager.buildPhase.label)
         default:
             VStack(alignment: .leading, spacing: 3) {
-                if manager.buildPhase == .building || manager.buildPhase == .deployingPlugins {
+                if manager.buildPhase == .building || manager.buildPhase == .buildingPlugins || manager.buildPhase == .deployingPlugins {
                     ProgressView(value: manager.buildProgress).progressViewStyle(.linear)
                 } else {
                     ProgressView().progressViewStyle(.linear)

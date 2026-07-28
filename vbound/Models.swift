@@ -230,6 +230,15 @@ struct FailedPlugin: Equatable {
     let path: String
 }
 
+struct VphoneDevice: Identifiable, Equatable {
+    let id: String
+    let productType: String
+
+    var label: String {
+        "\(id) · \(productType)"
+    }
+}
+
 enum SSHTestState: Equatable {
     case idle, testing, success, failure(String)
 }

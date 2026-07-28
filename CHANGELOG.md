@@ -9,6 +9,31 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-07-28
+
+### Added
+
+- A readiness tab in Settings checks every configured workspace and the build,
+  device, SSH, and addon toolchain, with copyable installation commands for
+  missing dependencies.
+- The device menu can discover connected vphone devices and explicitly select
+  one when more than one matching virtual device is available.
+
+### Changed
+
+- The companion panel now stays within the active display's visible area and
+  attaches to vphone's left edge when there is not enough space on the right.
+- Addon builds now show concise `Building addon 3/12` and `Built addon 3/12`
+  progress instead of raw `bunx ubd build` and Rollup output.
+
+### Fixed
+
+- Addon deployment now processes one addon at a time with per-addon retries,
+  fresh SSH transports, and longer connection windows, reducing intermittent
+  upload and remote-install failures.
+- Tweak installation and Discord relaunch retry through a freshly established
+  SSH tunnel instead of failing after one transient command error.
+
 ## [1.0.4] - 2026-07-26
 
 ### Fixed
