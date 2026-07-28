@@ -10,13 +10,14 @@ struct SettingsView: View {
     // filters or merge mode, which a user wouldn't associate with a Settings reset.
     private static let resettableKeys = [
         "vphoneCliPath", "unboundPath", "unboundPluginsPath", "sshPassword",
-        "autoAttachEnabled", "autoStartLogStreamEnabled", "autoConnectShellEnabled",
+        "autoAttachEnabled", "autoStartLogStreamEnabled", "autoConnectShellEnabled", "shutdownVphoneOnQuit",
         "autoCheckForUpdates", "updateCheckIntervalHours",
         "logBufferSize", "shellBufferSize",
         "skippedUpdateVersion",
         "globalHotkeyEnabled", "buildSoundsEnabled", "buildNotificationsEnabled",
         "accentColorChoice",
         "selectedVphoneUDID",
+        "workspaceProfilesData", "activeWorkspaceProfileID",
     ]
 
     var body: some View {
@@ -24,6 +25,8 @@ struct SettingsView: View {
             TabView {
                 GeneralSettingsView()
                     .tabItem { Label("General", systemImage: "gearshape") }
+                WorkspaceProfilesSettingsView()
+                    .tabItem { Label("Profiles", systemImage: "rectangle.stack") }
                 AutomationSettingsView()
                     .tabItem { Label("Automation", systemImage: "bolt") }
                 AdvancedSettingsView()
@@ -70,6 +73,115 @@ struct SettingsView: View {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let build   = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         return "vbound \(version) (\(build))"
+    }
+}
+
+private struct WorkspaceProfilesSettingsView: View {
+    @Environment(AppController.self) private var manager
+    @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
+    @AppStorage("unboundPath") private var unboundPath = NSHomeDirectory() + "/Developer/loader-ios"
+    @AppStorage("unboundPluginsPath") private var unboundPluginsPath = NSHomeDirectory() + "/Developer/unbound-plugins"
+    @AppStorage("sshPassword") private var sshPassword = ""
+    @AppStorage("workspaceProfilesData") private var profilesData = Data()
+    @AppStorage("activeWorkspaceProfileID") private var activeProfileID = ""
+    @State private var profiles: [WorkspaceProfile] = []
+    @State private var showNewProfile = false
+    @State private var newProfileName = ""
+
+    var body: some View {
+        Form {
+            Section("Workspace Profiles") {
+                if profiles.isEmpty {
+                    Text("Save the current paths, password, and selected vphone as a reusable profile.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Picker("Active Profile", selection: $activeProfileID) {
+                        Text("No active profile").tag("")
+                        ForEach(profiles) { profile in
+                            Text(profile.name).tag(profile.id.uuidString)
+                        }
+                    }
+                    .onChange(of: activeProfileID) { _, id in
+                        guard let profile = profiles.first(where: { $0.id.uuidString == id }) else { return }
+                        apply(profile)
+                    }
+                    .disabled(manager.buildPhase.isRunning)
+                }
+
+                HStack {
+                    Button("Save Current as…") {
+                        newProfileName = ""
+                        showNewProfile = true
+                    }
+                    .disabled(manager.buildPhase.isRunning)
+                    Button("Update Active") { updateActiveProfile() }
+                        .disabled(activeProfileID.isEmpty || manager.buildPhase.isRunning)
+                    Button("Delete Active", role: .destructive) { deleteActiveProfile() }
+                        .disabled(activeProfileID.isEmpty)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .padding(.top, 8)
+        .onAppear(perform: loadProfiles)
+        .alert("Save Workspace Profile", isPresented: $showNewProfile) {
+            TextField("Profile name", text: $newProfileName)
+            Button("Save") { saveNewProfile() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Profiles include paths, the device password, and the selected vphone.")
+        }
+    }
+
+    private func loadProfiles() {
+        profiles = (try? JSONDecoder().decode([WorkspaceProfile].self, from: profilesData)) ?? []
+    }
+
+    private func persistProfiles() {
+        profilesData = (try? JSONEncoder().encode(profiles)) ?? Data()
+    }
+
+    private func currentProfile(name: String, id: UUID = UUID()) -> WorkspaceProfile {
+        WorkspaceProfile(
+            id: id,
+            name: name,
+            vphoneCliPath: vphoneCliPath,
+            unboundPath: unboundPath,
+            unboundPluginsPath: unboundPluginsPath,
+            sshPassword: sshPassword,
+            selectedVphoneUDID: manager.selectedVphoneUDID
+        )
+    }
+
+    private func saveNewProfile() {
+        let name = newProfileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        let profile = currentProfile(name: name)
+        profiles.append(profile)
+        activeProfileID = profile.id.uuidString
+        persistProfiles()
+    }
+
+    private func updateActiveProfile() {
+        guard let index = profiles.firstIndex(where: { $0.id.uuidString == activeProfileID }) else { return }
+        profiles[index] = currentProfile(name: profiles[index].name, id: profiles[index].id)
+        persistProfiles()
+    }
+
+    private func deleteActiveProfile() {
+        profiles.removeAll { $0.id.uuidString == activeProfileID }
+        activeProfileID = ""
+        persistProfiles()
+    }
+
+    private func apply(_ profile: WorkspaceProfile) {
+        vphoneCliPath = profile.vphoneCliPath
+        unboundPath = profile.unboundPath
+        unboundPluginsPath = profile.unboundPluginsPath
+        sshPassword = profile.sshPassword
+        if let udid = profile.selectedVphoneUDID { manager.selectVphone(udid) }
+        else { manager.clearSelectedVphone() }
     }
 }
 
@@ -167,6 +279,7 @@ private struct AutomationSettingsView: View {
     @AppStorage("autoAttachEnabled") private var autoAttachEnabled = true
     @AppStorage("autoStartLogStreamEnabled") private var autoStartLogStreamEnabled = false
     @AppStorage("autoConnectShellEnabled")   private var autoConnectShellEnabled   = false
+    @AppStorage("shutdownVphoneOnQuit") private var shutdownVphoneOnQuit = false
     @AppStorage("globalHotkeyEnabled") private var globalHotkeyEnabled = false
 
     var body: some View {
@@ -175,6 +288,7 @@ private struct AutomationSettingsView: View {
                 Toggle("Auto-attach to vphone window", isOn: $autoAttachEnabled)
                 Toggle("Auto-start log stream on attach", isOn: $autoStartLogStreamEnabled)
                 Toggle("Auto-connect shell on attach", isOn: $autoConnectShellEnabled)
+                Toggle("Shut down vphone when quitting vbound", isOn: $shutdownVphoneOnQuit)
             }
 
             Section("Shortcuts") {

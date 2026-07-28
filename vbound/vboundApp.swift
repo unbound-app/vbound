@@ -49,6 +49,7 @@ final class TerminatingWindowDelegate: NSObject, NSWindowDelegate {
         terminateWithChildren(forwardProc)
         terminateWithChildren(buildProc)
         terminateWithChildren(mountProc)
+        let controlPath = ctrl?.sshControlPath ?? AppController.sshControlDirectory + "/vbound-mux-default"
         // Ask the SSH multiplexer master to exit too (ControlPersist=60 would otherwise
         // leave it running for a minute after the last client disconnects). Fire-and-forget:
         // waiting here would block the whole app quit if the control socket doesn't
@@ -56,7 +57,7 @@ final class TerminatingWindowDelegate: NSObject, NSWindowDelegate {
         let mux = Process()
         mux.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         mux.arguments     = ["ssh", "-O", "exit",
-                             "-o", "ControlPath=\(AppController.sshControlPath)",  // #8
+                             "-o", "ControlPath=\(controlPath)",  // #8
                              "mobile@127.0.0.1"]
         try? mux.run()
         // Same fire-and-forget reasoning as the mux exit above — waiting on umount here
@@ -116,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let mux = Process()
         mux.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         mux.arguments     = ["ssh", "-O", "exit",
-                             "-o", "ControlPath=\(AppController.sshControlPath)",
+                             "-o", "ControlPath=\(ctrl.sshControlPath)",
                              "mobile@127.0.0.1"]
         try? mux.run()
         let umount = Process()
@@ -141,7 +142,7 @@ func confirmQuit(for ctrl: AppController) -> Bool {
         guard alert.runModal() == .alertFirstButtonReturn else { return false }
     }
 
-    if ctrl.bootedVphone && ctrl.vphoneDetected {
+    if UserDefaults.standard.bool(forKey: "shutdownVphoneOnQuit") && ctrl.bootedVphone && ctrl.vphoneDetected {
         let alert = NSAlert()
         alert.messageText     = "Shut down vphone?"
         alert.informativeText = "vphone was started by vbound and is still running. " +
@@ -157,7 +158,6 @@ func confirmQuit(for ctrl: AppController) -> Bool {
             p.arguments     = ["pymobiledevice3", "diagnostics", "shutdown", "--udid", udid]
             p.environment   = ctrl.enrichedEnvironment
             try? p.run()
-            p.waitUntilExit()
         }
     }
 

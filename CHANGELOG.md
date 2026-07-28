@@ -9,6 +9,30 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-07-28
+
+### Added
+
+- Settings now supports named workspace profiles, preserving the vphone-cli,
+  tweak, addon, password, and selected-device configuration for each project.
+- The Automation settings include an opt-in choice to shut down a vphone that
+  vbound booted when quitting; it is off by default.
+
+### Changed
+
+- SSH multiplexing now uses a separate control socket for each selected vphone.
+- Switching the selected vphone unmounts the existing Finder filesystem first,
+  preventing Finder from continuing to show a different device.
+
+### Fixed
+
+- Closing vbound no longer shuts down a vphone it booted unless that behavior is
+  explicitly enabled in Settings.
+- Device discovery includes the underlying `pymobiledevice3` error when the
+  command cannot produce a valid device list.
+- Shutdown progress and failure state are now visible from the device status
+  control instead of failing silently.
+
 ## [1.0.5] - 2026-07-28
 
 ### Added

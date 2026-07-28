@@ -475,6 +475,7 @@ struct ContentView: View {
                 Button("Shut Down vphone", role: .destructive) {
                     showShutdownConfirm = true
                 }
+                .disabled(manager.isShuttingDown)
             } else {
                 Button("Boot vphone") {
                     manager.bootVphone(in: vphoneCliPath)
@@ -1449,12 +1450,18 @@ struct ContentView: View {
     // width (regular control size, "Settings" gained a text label) and were truncating
     // this with an ellipsis.
     private var statusText: String {
+        if let message = manager.lastShutdownMessage { return message }
+        if manager.lastShutdownError != nil { return "Shutdown Failed" }
+        if manager.isShuttingDown { return "Shutting Down" }
         if manager.isAttached     { return "Attached" }
         if manager.vphoneDetected { return "Running" }
         return "Not Running"
     }
 
     private var statusHelpText: String {
+        if let error = manager.lastShutdownError { return "Shutdown failed: \(error)" }
+        if let message = manager.lastShutdownMessage { return message }
+        if manager.isShuttingDown { return "Waiting for vphone to shut down" }
         if manager.isAttached     { return "Attached to the vphone window" }
         if manager.vphoneDetected { return "vphone is running but not attached" }
         return "vphone is not running"

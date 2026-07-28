@@ -10,6 +10,8 @@ extension AppController {
         guard !isBooting, !vphoneDetected else { return }
         isBooting = true
         bootedVphone = true
+        lastShutdownError = nil
+        lastShutdownMessage = nil
         let dirPath = (directory as NSString).expandingTildeInPath
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
@@ -29,10 +31,19 @@ extension AppController {
     }
 
     func shutdownVphone() {
-        Task {
+        guard !isShuttingDown else { return }
+        isShuttingDown = true
+        lastShutdownError = nil
+        lastShutdownMessage = nil
+        Task { [weak self] in
+            guard let self else { return }
+            defer { isShuttingDown = false }
             var udid = vphoneUDID
             if udid == nil { udid = await resolveVphoneUDID().0 }
-            guard let udid else { return }
+            guard let udid else {
+                lastShutdownError = "Could not resolve the selected vphone device"
+                return
+            }
             // Otherwise the log stream and shell session just lose their connection when
             // the device actually goes offline, and both auto-reconnect straight into a
             // retry-every-2-seconds loop against a device we just told it to shut down.
@@ -46,7 +57,9 @@ extension AppController {
             // instead of cleanly reconnecting once vphone is back.
             forwardProcess?.terminate()
             forwardProcess = nil
-            _ = await run(args: ["pymobiledevice3", "diagnostics", "shutdown", "--udid", udid], timeout: 10)
+            let stopped = await run(args: ["pymobiledevice3", "diagnostics", "shutdown", "--udid", udid], timeout: 10)
+            if stopped { lastShutdownMessage = "Shutdown requested" }
+            else { lastShutdownError = "vphone did not acknowledge the shutdown request" }
         }
     }
 

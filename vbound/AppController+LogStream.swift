@@ -205,6 +205,11 @@ extension AppController {
             if which.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return (nil, [err("pymobiledevice3 not found — pipx install pymobiledevice3")])
             }
+            let detail = listRaw
+                .components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .last(where: { !$0.isEmpty })
+            if let detail { return (nil, [err("could not list connected devices — \(detail)")]) }
             return (nil, [err("no devices found — is vphone running?")])
         }
 

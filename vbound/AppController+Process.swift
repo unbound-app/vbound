@@ -148,7 +148,7 @@ extension AppController {
             "-o", "UserKnownHostsFile=/dev/null",
             "-o", "PubkeyAuthentication=no",
             "-o", "ControlMaster=auto",
-            "-o", "ControlPath=\(AppController.sshControlPath)",  // #8
+            "-o", "ControlPath=\(sshControlPath)",  // #8
             "-o", "ControlPersist=60",
             "mobile@127.0.0.1",
             command
@@ -208,7 +208,7 @@ extension AppController {
             p.environment   = enrichedEnvironment
             let pipe = Pipe()
             p.standardOutput = pipe
-            p.standardError  = Pipe()
+            p.standardError  = pipe
 
             let q = DispatchQueue(label: "vbound.capture")
             var buf = Data()
@@ -239,10 +239,10 @@ extension AppController {
         }
     }
 
-    func closeSSHControlMaster() async {
+    func closeSSHControlMaster(at controlPath: String? = nil) async {
         _ = await run(args: [
             "ssh", "-O", "exit",
-            "-o", "ControlPath=\(AppController.sshControlPath)",
+            "-o", "ControlPath=\(controlPath ?? sshControlPath)",
             "mobile@127.0.0.1"
         ], timeout: 5)
     }

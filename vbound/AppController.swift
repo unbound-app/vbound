@@ -22,6 +22,8 @@ final class AppController: @unchecked Sendable {
     var discordLaunchFailed = false
     var isBooting        = false
     var isLaunchingDiscord = false
+    var isShuttingDown = false
+    var lastShutdownMessage: String? = nil
     var bootedVphone     = false
     var vphoneUDID:      String? = nil
     var vphoneCandidates: [VphoneDevice] = []
@@ -29,6 +31,7 @@ final class AppController: @unchecked Sendable {
     var isMounted        = false
     var isMounting       = false
     var lastMountError:  String? = nil
+    var lastShutdownError: String? = nil
     var lastTweakResult:  BuildResultSummary? = nil
     var lastAddonsResult: BuildResultSummary? = nil
     var lastFailedPlugins: [FailedPlugin] = []
@@ -43,14 +46,18 @@ final class AppController: @unchecked Sendable {
     var globalHotkeyMonitor: Any?
     var localHotkeyMonitor:  Any?
 
-    // ~/.ssh/ is created lazily here so ControlPath is always valid on first use (#8)
-    static let sshControlPath: String = {
+    static let sshControlDirectory: String = {
         let dir = NSHomeDirectory() + "/.ssh"
         try? FileManager.default.createDirectory(
             atPath: dir, withIntermediateDirectories: true,
             attributes: [.posixPermissions: NSNumber(value: Int16(0o700))])
-        return dir + "/vbound-mux"
+        return dir
     }()
+
+    var sshControlPath: String {
+        let deviceID = vphoneUDID ?? selectedVphoneUDID ?? "default"
+        return AppController.sshControlDirectory + "/vbound-mux-\(deviceID)"
+    }
 
     weak var ourWindow:   NSWindow?
     var mountProcess:     Process?
@@ -67,16 +74,33 @@ final class AppController: @unchecked Sendable {
 
     func selectVphone(_ udid: String) {
         let changed = vphoneUDID != nil && vphoneUDID != udid
+        let previousControlPath = sshControlPath
         selectedVphoneUDID = udid
         vphoneUDID = udid
         UserDefaults.standard.set(udid, forKey: "selectedVphoneUDID")
         if changed {
+            if isMounted { unmountVphone() }
             stopLogStream()
             disconnectShell()
             forwardProcess?.terminate()
             forwardProcess = nil
-            Task { [weak self] in await self?.closeSSHControlMaster() }
+            Task { [weak self] in await self?.closeSSHControlMaster(at: previousControlPath) }
         }
+        updateWindowTitle()
+    }
+
+    func clearSelectedVphone() {
+        guard selectedVphoneUDID != nil || vphoneUDID != nil else { return }
+        let previousControlPath = sshControlPath
+        if isMounted { unmountVphone() }
+        stopLogStream()
+        disconnectShell()
+        forwardProcess?.terminate()
+        forwardProcess = nil
+        selectedVphoneUDID = nil
+        vphoneUDID = nil
+        UserDefaults.standard.removeObject(forKey: "selectedVphoneUDID")
+        Task { [weak self] in await self?.closeSSHControlMaster(at: previousControlPath) }
         updateWindowTitle()
     }
 

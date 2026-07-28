@@ -119,7 +119,7 @@ extension AppController {
                 "-o", "PubkeyAuthentication=no",
                 "-o", "ConnectTimeout=5",
                 "-o", "ControlMaster=auto",
-                "-o", "ControlPath=\(AppController.sshControlPath)",
+                "-o", "ControlPath=\(sshControlPath)",
                 "-o", "ControlPersist=60",
                 "-o", "reconnect",
                 "-o", "ServerAliveInterval=15",

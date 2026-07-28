@@ -188,7 +188,7 @@ extension AppController {
                 "-o", "ServerAliveInterval=5",
                 "-o", "ServerAliveCountMax=3",
                 "-o", "ControlMaster=auto",
-                "-o", "ControlPath=\(AppController.sshControlPath)",
+                "-o", "ControlPath=\(sshControlPath)",
                 "-o", "ControlPersist=60",
                 distPath, "mobile@127.0.0.1:\(stagingPath)"
             ], timeout: 45, onLaunch: { [weak self] p in self?.activeProcesses.append(p) })
@@ -232,7 +232,7 @@ extension AppController {
                 "-o", "ServerAliveInterval=5",
                 "-o", "ServerAliveCountMax=2",
                 "-o", "ControlMaster=auto",
-                "-o", "ControlPath=\(AppController.sshControlPath)",  // #8
+                "-o", "ControlPath=\(sshControlPath)",  // #8
                 "-o", "ControlPersist=60",
                 localPath, "mobile@127.0.0.1:\(remotePath)"
             ], timeout: 180, onLaunch: { [weak self] p in self?.buildProcess = p })

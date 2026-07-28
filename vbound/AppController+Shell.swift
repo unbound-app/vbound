@@ -39,7 +39,7 @@ extension AppController {
                 "-o", "ServerAliveInterval=5",
                 "-o", "ServerAliveCountMax=2",
                 "-o", "ControlMaster=auto",
-                "-o", "ControlPath=\(AppController.sshControlPath)",  // #8
+                "-o", "ControlPath=\(sshControlPath)",  // #8
                 "-o", "ControlPersist=60",
                 "mobile@127.0.0.1"
             ]

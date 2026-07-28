@@ -239,6 +239,16 @@ struct VphoneDevice: Identifiable, Equatable {
     }
 }
 
+struct WorkspaceProfile: Codable, Identifiable, Equatable {
+    let id: UUID
+    var name: String
+    var vphoneCliPath: String
+    var unboundPath: String
+    var unboundPluginsPath: String
+    var sshPassword: String
+    var selectedVphoneUDID: String?
+}
+
 enum SSHTestState: Equatable {
     case idle, testing, success, failure(String)
 }
