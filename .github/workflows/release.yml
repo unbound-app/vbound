@@ -54,10 +54,28 @@ jobs:
                   certificate-type: DEVELOPER_ID
 
             - name: Install Signing Assets
-              uses: apple-actions/import-codesign-certs@v7
-              with:
-                  p12-file-base64: ${{ steps.cert.outputs.p12-certificate-base64 }}
-                  p12-password: ${{ steps.cert.outputs.p12-password }}
+              env:
+                  P12_FILE_BASE64: ${{ steps.cert.outputs.p12-certificate-base64 }}
+                  P12_PASSWORD: ${{ steps.cert.outputs.p12-password }}
+              run: |
+                  KEYCHAIN_PATH="$RUNNER_TEMP/vbound-signing.keychain-db"
+                  KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+                  P12_PATH="$RUNNER_TEMP/vbound-signing.p12"
+
+                  echo "$P12_FILE_BASE64" | base64 --decode > "$P12_PATH"
+                  security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+                  security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+                  security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+                  security import "$P12_PATH" -k "$KEYCHAIN_PATH" -f pkcs12 \
+                    -T /usr/bin/codesign \
+                    -T /usr/bin/security \
+                    -T /usr/bin/pkgbuild \
+                    -T /usr/bin/productbuild \
+                    -T /usr/bin/productsign \
+                    -P "$P12_PASSWORD"
+                  security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+                  security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+                  rm -f "$P12_PATH"
 
             - name: Cache SPM dependencies
               uses: actions/cache@v6
@@ -144,3 +162,7 @@ jobs:
                   fail_on_unmatched_files: true
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Remove Signing Assets
+              if: always()
+              run: security delete-keychain "$RUNNER_TEMP/vbound-signing.keychain-db" || true

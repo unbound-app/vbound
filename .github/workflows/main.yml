@@ -49,7 +49,7 @@ jobs:
                     -project "${{ steps.project.outputs.project }}" \
                     -scheme "${{ steps.project.outputs.scheme }}" \
                     -configuration Debug \
-                    -destination "platform=macOS" \
+                    -destination "platform=macOS,arch=arm64" \
                     -clonedSourcePackagesDirPath SourcePackages \
                     CODE_SIGNING_ALLOWED=NO \
                     | xcbeautify
