@@ -632,14 +632,10 @@ struct ContentView: View {
         Button {
             openSettings()
         } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "gearshape")
-                Text("Settings")
-            }
-            .padding(.horizontal, 2)
+            Image(systemName: "gearshape")
         }
         .buttonStyle(.bordered)
-        .buttonBorderShape(.capsule)
+        .buttonBorderShape(.circle)
         .help("Open Settings")
     }
 

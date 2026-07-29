@@ -14,9 +14,12 @@ extension AppController {
         lastShutdownMessage = nil
         let dirPath = (directory as NSString).expandingTildeInPath
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        p.arguments = ["-l", "-c",
-                       "cd '\(dirPath)' && nohup make boot > /dev/null 2>&1 & disown $!"]
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/nohup")
+        p.arguments = ["/usr/bin/make", "boot"]
+        p.currentDirectoryURL = URL(fileURLWithPath: dirPath, isDirectory: true)
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        p.environment = enrichedEnvironment
         try? p.run()
 
         // Booting can fail silently (wrong path deeper than the top-level directory
