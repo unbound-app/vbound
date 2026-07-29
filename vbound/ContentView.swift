@@ -368,8 +368,10 @@ struct ContentView: View {
             mountQuickAction
         }
 
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
         ToolbarItem(placement: .primaryAction) {
-            settingsQuickAction
+            settingsQuickAction.offset(x: -4)
         }
     }
 
@@ -448,7 +450,7 @@ struct ContentView: View {
         ToolbarSpacer(.fixed, placement: .primaryAction)
 
         ToolbarItem(placement: .primaryAction) {
-            settingsQuickAction
+            settingsQuickAction.offset(x: -4)
         }
     }
 
