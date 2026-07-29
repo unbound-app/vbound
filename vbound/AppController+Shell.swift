@@ -59,7 +59,7 @@ extension AppController {
     }
 
     func clearEmbeddedTerminal() {
-        embeddedTerminal?.send([0x0C])
+        embeddedTerminal?.send(Array("clear\r".utf8))
     }
 
     func connectShell() {
