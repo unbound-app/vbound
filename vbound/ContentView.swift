@@ -347,13 +347,29 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var quickActionToolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            HStack(spacing: 6) {
-                discordQuickAction
-                tweakQuickAction
-                addonsQuickAction
-                mountQuickAction
-                settingsQuickAction
-            }
+            discordQuickAction
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            tweakQuickAction
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            addonsQuickAction
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            mountQuickAction
+        }
+
+        ToolbarItem(placement: .primaryAction) {
+            settingsQuickAction
         }
     }
 
