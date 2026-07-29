@@ -1445,7 +1445,7 @@ struct ContentView: View {
         if let message = manager.lastShutdownMessage { return message }
         if manager.lastShutdownError != nil { return "Shutdown Failed" }
         if manager.isShuttingDown { return "Shutting Down" }
-        if manager.isAttached     { return "Attached · Running" }
+        if manager.isAttached     { return "Attached" }
         if manager.vphoneDetected { return "Running" }
         return "Not Running"
     }

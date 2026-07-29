@@ -9,6 +9,12 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-07-29
+
+### Fixed
+
+- Attached vphone status no longer duplicates the running state and hides the Settings control.
+
 ## [1.3.0] - 2026-07-29
 
 ### Added
