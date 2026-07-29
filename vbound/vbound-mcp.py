@@ -10,6 +10,7 @@ HOME = os.path.expanduser("~")
 VPHONE = os.environ.get("VBOUND_VPHONE_CLI", "/opt/homebrew/bin/vphone-cli")
 VM_NAME = os.environ.get("VBOUND_VM_NAME", "vphone")
 SSH_PASSWORD = os.environ.get("VBOUND_SSH_PASSWORD", "alpine")
+THEOS = os.environ.get("THEOS", os.path.join(HOME, "theos"))
 
 
 TOOLS = [
@@ -31,7 +32,18 @@ TOOLS = [
 
 def command(args, cwd=None, timeout=None):
     try:
-        result = subprocess.run(args, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
+        environment = os.environ.copy()
+        environment["THEOS"] = THEOS
+        environment["PATH"] = ":".join([
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/opt/homebrew/opt/coreutils/libexec/gnubin",
+            "/usr/sbin",
+            os.path.join(HOME, ".bun", "bin"),
+            os.path.join(HOME, ".local", "bin"),
+            environment.get("PATH", "/usr/bin:/bin"),
+        ])
+        result = subprocess.run(args, cwd=cwd, env=environment, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
         return result.returncode == 0, result.stdout.strip()
     except Exception as error:
         return False, str(error)
