@@ -11,8 +11,8 @@ enum MCPInstaller {
     static var isInstalled: Bool {
         let codexURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/config.toml")
         let claudeURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude.json")
-        let codex = (try? String(contentsOf: codexURL))?.contains("[mcp_servers.\(serverName)]") ?? false
-        let claude = (try? String(contentsOf: claudeURL))?.contains("\"\(serverName)\"") ?? false
+        let codex = (try? String(contentsOf: codexURL, encoding: .utf8))?.contains("[mcp_servers.\(serverName)]") ?? false
+        let claude = (try? String(contentsOf: claudeURL, encoding: .utf8))?.contains("\"\(serverName)\"") ?? false
         return codex && claude && FileManager.default.isExecutableFile(atPath: installURL.path)
     }
 

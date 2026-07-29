@@ -98,6 +98,7 @@ jobs:
                     CODE_SIGN_IDENTITY="${{ steps.cert.outputs.codesign-identity }}" \
                     PROVISIONING_PROFILE_SPECIFIER="" \
                     CURRENT_PROJECT_VERSION="${{ steps.project.outputs.build-number }}" \
+                    COMPILER_INDEX_STORE_ENABLE=NO \
                     | xcbeautify
 
             - name: Export app
