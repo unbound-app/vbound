@@ -18,12 +18,8 @@ extension AppController {
     var embeddedShellArguments: [String] {
         let askpass = "#!/bin/sh\nprintf '%s\\n' \(Self.shellQuoted(sshPassword))\n"
         let encodedAskpass = Data(askpass.utf8).base64EncodedString()
-        let command = [
-            "askpass=$(mktemp /tmp/vbound-askpass.XXXXXX)",
-            "trap 'rm -f \"$askpass\"' EXIT",
-            "printf '%s' \(Self.shellQuoted(encodedAskpass)) | /usr/bin/base64 -D > \"$askpass\"",
-            "chmod 700 \"$askpass\"",
-            "DISPLAY=vbound SSH_ASKPASS=\"$askpass\" SSH_ASKPASS_REQUIRE=force exec ssh",
+        let ssh = [
+            "ssh",
             "-tt",
             "-p 2222",
             "-o StrictHostKeyChecking=no",
@@ -40,6 +36,13 @@ extension AppController {
             "-o ControlPersist=60",
             "mobile@127.0.0.1"
         ].joined(separator: " ")
+        let command = [
+            "askpass=$(mktemp /tmp/vbound-askpass.XXXXXX)",
+            "trap 'rm -f \"$askpass\"' EXIT",
+            "printf '%s' \(Self.shellQuoted(encodedAskpass)) | /usr/bin/base64 -D > \"$askpass\"",
+            "chmod 700 \"$askpass\"",
+            "DISPLAY=vbound SSH_ASKPASS=\"$askpass\" SSH_ASKPASS_REQUIRE=force exec \(ssh)"
+        ].joined(separator: "; ")
         return [
             "sh", "-c", command
         ]
