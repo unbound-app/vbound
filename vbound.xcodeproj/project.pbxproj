@@ -74,6 +74,7 @@
 			packageProductDependencies = (
 				3AC349292FF46B92006A1959 /* AppUpdater */,
 				3A1FA99C2FF946EF002B5525 /* Textual */,
+				3A7E10012FF5000000BEEF01 /* SwiftTerm */,
 			);
 			productName = vbound;
 			productReference = 3A70EE592FEDF322003EE09D /* vbound.app */;
@@ -106,6 +107,7 @@
 			packageReferences = (
 				3AC349282FF46B92006A1959 /* XCRemoteSwiftPackageReference "AppUpdater" */,
 				3A1FA99B2FF946EF002B5525 /* XCRemoteSwiftPackageReference "textual" */,
+				3A7E10002FF5000000BEEF01 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3A70EE5A2FEDF322003EE09D /* Products */;
@@ -284,7 +286,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.4.4;
+				MARKETING_VERSION = 1.5.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.adrian.vbound;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -319,7 +321,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.4.4;
+				MARKETING_VERSION = 1.5.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.adrian.vbound;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -372,6 +374,14 @@
 				kind = branch;
 			};
 		};
+		3A7E10002FF5000000BEEF01 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm.git";
+			requirement = {
+				kind = exactVersion;
+				version = 1.11.2;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -384,6 +394,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 3AC349282FF46B92006A1959 /* XCRemoteSwiftPackageReference "AppUpdater" */;
 			productName = AppUpdater;
+		};
+		3A7E10012FF5000000BEEF01 /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3A7E10002FF5000000BEEF01 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

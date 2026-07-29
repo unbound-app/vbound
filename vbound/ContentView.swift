@@ -735,21 +735,7 @@ struct ContentView: View {
         Group {
             if activeTab == .shell {
                 VStack(spacing: 0) {
-                    ZStack(alignment: .bottomTrailing) {
-                        shellView
-                        if !shellAutoScroll {
-                            Button {
-                                shellAutoScroll = true
-                                shellScrollVersion += 1
-                            } label: {
-                                Label("Jump to Latest", systemImage: "arrow.down.to.line")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                            .padding(14)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                        }
-                    }
+                    shellView
                     Divider()
                     shellStatusBar
                 }
@@ -784,10 +770,7 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.16), value: logAutoScroll)
         .animation(.easeInOut(duration: 0.16), value: shellAutoScroll)
         .onChange(of: activeTab) { _, new in
-            if new == .shell, !manager.isShellConnected {
-                shellAutoScroll = true
-                manager.connectShell()
-            }
+            if new == .shell { shellAutoScroll = true }
         }
         .background(Color(nsColor: .textBackgroundColor))
     }
@@ -1161,6 +1144,10 @@ struct ContentView: View {
 
     @ViewBuilder
     private var shellView: some View {
+        ShellTerminalView(manager: manager)
+    }
+
+    private var legacyShellView: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView([.vertical, .horizontal]) {

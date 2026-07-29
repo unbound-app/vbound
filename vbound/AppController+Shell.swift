@@ -1,6 +1,46 @@
 import AppKit
+import SwiftTerm
 
 extension AppController {
+
+    func prepareEmbeddedShell() async -> Bool {
+        guard !isShellConnected, !isShellConnecting else { return false }
+        isShellConnecting = true
+        guard await ensurePortForward() else {
+            isShellConnecting = false
+            return false
+        }
+        isShellConnected = true
+        isShellConnecting = false
+        return true
+    }
+
+    var embeddedShellArguments: [String] {
+        [
+            "sshpass", "-p", sshPassword,
+            "ssh", "-tt",
+            "-p", "2222",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "PubkeyAuthentication=no",
+            "-o", "ConnectTimeout=5",
+            "-o", "ServerAliveInterval=5",
+            "-o", "ServerAliveCountMax=2",
+            "-o", "ControlMaster=auto",
+            "-o", "ControlPath=\(sshControlPath)",
+            "-o", "ControlPersist=60",
+            "mobile@127.0.0.1"
+        ]
+    }
+
+    var embeddedShellEnvironment: [String] {
+        enrichedEnvironment.map { "\($0.key)=\($0.value)" }
+    }
+
+    func embeddedShellTerminated() {
+        isShellConnected = false
+        isShellConnecting = false
+    }
 
     func connectShell() {
         // Also guards against double-invocation while already mid-handshake — without
@@ -120,6 +160,10 @@ extension AppController {
     // Single bytes (^C, ^D, …) and multi-byte ANSI escape sequences (arrow keys are
     // ESC [ A / ESC [ B, not one byte) both go through here.
     func sendShellControlBytes(_ bytes: [UInt8]) {
+        if let embeddedTerminal {
+            embeddedTerminal.send(bytes)
+            return
+        }
         guard let handle = shellInputHandle else { return }
         handle.write(Data(bytes))
     }
@@ -128,6 +172,8 @@ extension AppController {
         shellAutoReconnect = false  // prevent reconnect on deliberate disconnect (#6)
         isShellConnecting  = false
         shellProcess?.terminate()
+        embeddedTerminal?.terminate()
+        embeddedTerminal = nil
         shellProcess     = nil
         shellInputHandle = nil
         isShellConnected = false

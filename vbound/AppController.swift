@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 import Observation
+import SwiftTerm
 
 @Observable
 final class AppController: @unchecked Sendable {
@@ -70,6 +71,7 @@ final class AppController: @unchecked Sendable {
     var logStreamAutoReconnect = false
     var shellProcess:     Process?
     var shellInputHandle: FileHandle?
+    weak var embeddedTerminal: LocalProcessTerminalView?
     var shellAutoReconnect = false
     var terminatingDelegate: TerminatingWindowDelegate?
 
