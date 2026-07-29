@@ -9,6 +9,17 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-29
+
+### Added
+
+- A launch watcher that opens vbound when a new vphone starts.
+- Best-effort non-fullscreen vphone window maximization that preserves room for the attached panel.
+
+### Fixed
+
+- vbound remains visible as a standalone window after vphone exits instead of disappearing into the Dock as a background process.
+
 ## [1.3.1] - 2026-07-29
 
 ### Fixed

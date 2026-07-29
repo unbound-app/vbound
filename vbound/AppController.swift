@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import CoreGraphics
 import Observation
 
@@ -109,6 +110,7 @@ final class AppController: @unchecked Sendable {
     private var pollTimer:       Timer?
     private var windowObservers: [NSObjectProtocol] = []
     private var slowPollTickCounter = 0
+    private var maximizedVphonePID: pid_t?
 
     // MARK: - Lifecycle
 
@@ -159,6 +161,7 @@ final class AppController: @unchecked Sendable {
             || !FileManager.default.fileExists(atPath: homebrewVM)
             || (FileManager.default.fileExists(atPath: legacyVM) && !FileManager.default.fileExists(atPath: homebrewVM))
             || !MCPInstaller.isInstalled
+            || !VphoneLaunchAgent.isInstalled
     }
 
     // The underlying CGWindowList enumeration in checkAndAttach() — not the timer
@@ -241,20 +244,13 @@ final class AppController: @unchecked Sendable {
             updateWindowTitle()
             guard isAttached else { return }
             isAttached = false
-            guard autoAttachEnabled else { return }
-            // Anything short of a genuine Dock miniaturize (app quit, Stage Manager
-            // sweeping the phone window off-screen, a Spaces switch, ...) should still
-            // pull vbound out of view the same way vphone just did, instead of leaving
-            // it glued in place at `.floating` level with nothing behind it.
-            if let app, isVphoneMinimized(forPID: app.processIdentifier) {
-                ourWindow?.miniaturize(nil)
-            } else {
-                ourWindow?.orderOut(nil)
-            }
+            ourWindow?.level = .normal
+            ourWindow?.orderFrontRegardless()
             return
         }
         vphoneDetected = true
         isBooting = false
+        if let app { maximizeVphoneWindow(pid: app.processIdentifier, frame: vphoneFrame) }
         if autoAttachEnabled {
             if !isAttached { ourWindow?.orderFront(nil) }
             positionBeside(vphoneFrame)
@@ -397,6 +393,29 @@ final class AppController: @unchecked Sendable {
         let target = NSPoint(x: x, y: y)
         if window.frame.origin != target { window.setFrameOrigin(target) }
         markAttached()
+    }
+
+    private func maximizeVphoneWindow(pid: pid_t, frame: CGRect) {
+        guard maximizedVphonePID != pid, AXIsProcessTrusted() else { return }
+        let element = AXUIElementCreateApplication(pid)
+        var windowsObject: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &windowsObject) == .success,
+              let windows = windowsObject as? [AXUIElement],
+              let window = windows.first else { return }
+        let screenHeight = NSScreen.screens.first?.frame.height ?? 0
+        let appKitFrame = CGRect(x: frame.minX, y: screenHeight - frame.maxY, width: frame.width, height: frame.height)
+        guard let screen = NSScreen.screens.first(where: { $0.frame.intersects(appKitFrame) }) ?? NSScreen.main else { return }
+        let visible = screen.visibleFrame.insetBy(dx: 10, dy: 10)
+        let aspect = frame.height / frame.width
+        let panelWidth = ourWindow?.frame.width ?? 600
+        let width = min(visible.width - panelWidth - 16, visible.height / aspect)
+        guard width > 250 else { return }
+        let height = width * aspect
+        var size = CGSize(width: width, height: height)
+        var position = CGPoint(x: visible.minX, y: screen.frame.maxY - visible.maxY)
+        let sizeResult = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, AXValueCreate(.cgSize, &size))
+        let positionResult = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, AXValueCreate(.cgPoint, &position))
+        if sizeResult == .success && positionResult == .success { maximizedVphonePID = pid }
     }
 
     // One-shot per attach transition (guarded by `isAttached`) so Settings' auto-start

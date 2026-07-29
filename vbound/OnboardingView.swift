@@ -31,6 +31,7 @@ struct OnboardingView: View {
     private var hasVM: Bool { FileManager.default.fileExists(atPath: vmURL.path) }
     private var hasCLI: Bool { AppController.executableValid(vphoneCliPath) }
     private var hasMCP: Bool { MCPInstaller.isInstalled }
+    private var hasLaunchWatcher: Bool { VphoneLaunchAgent.isInstalled }
 
     var body: some View {
         ZStack {
@@ -75,10 +76,19 @@ struct OnboardingView: View {
                         Button("Install MCP server") { installMCP() }.disabled(isWorking || !hasCLI || !hasVM)
                     }
                 }
+                GroupBox("Vphone automation") {
+                    Text("Launch vbound whenever a vphone starts and enlarge the phone window without entering full screen.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    if hasLaunchWatcher {
+                        Label("Launch watcher installed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    } else {
+                        Button("Install launch watcher") { installLaunchWatcher() }.disabled(isWorking || !hasCLI || !hasVM)
+                    }
+                }
                 if !setupOutput.isEmpty { Text(setupOutput).font(.caption.monospaced()).lineLimit(5) }
                 Button("Continue") { complete() }
                     .buttonStyle(.borderedProminent)
-                    .disabled(!hasCLI || !hasVM || !hasMCP || !recoveryConfirmed || (securityPath == .amfidont && !amfidontConfigured) || isWorking)
+                    .disabled(!hasCLI || !hasVM || !hasMCP || !hasLaunchWatcher || !recoveryConfirmed || (securityPath == .amfidont && !amfidontConfigured) || isWorking)
             }
             .padding(20).frame(width: 480)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
@@ -132,6 +142,12 @@ struct OnboardingView: View {
             isWorking = false
             if !ok { setupOutput = "MCP installation failed. Ensure Codex and Claude Code are installed." }
         }
+    }
+    private func installLaunchWatcher() {
+        isWorking = true
+        let installed = VphoneLaunchAgent.install()
+        isWorking = false
+        if !installed { setupOutput = "Could not install the vphone launch watcher." }
     }
     private func run(_ args: [String]) { isWorking = true; Task { let ok = await manager.run(args: args, onOutput: { lines in setupOutput = lines.suffix(5).joined(separator: "\n") }); isWorking = false; if !ok { setupOutput = "Setup command failed." } } }
     private func complete() { hasCompletedOnboarding = true; isPresented = false }
