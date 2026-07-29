@@ -213,27 +213,7 @@ final class AppController: @unchecked Sendable {
             guard let self, (n.object as? NSWindow) === self.ourWindow else { return }
             self.findVphoneApp()?.unhide()
         }
-        // Our window runs at `.floating` level so it stays above the vphone window it's
-        // snapped to — but that also means any ordinary window (About panel, Settings,
-        // alerts) opens *behind* it. Drop to `.normal` whenever another window becomes
-        // key, and restore once no other windows are left open.
-        let auxKey = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
-        ) { [weak self] n in
-            guard let self, let window = n.object as? NSWindow, window !== self.ourWindow else { return }
-            self.ourWindow?.level = .normal
-        }
-        let auxClose = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification, object: nil, queue: .main
-        ) { [weak self] n in
-            guard let self, let closed = n.object as? NSWindow, closed !== self.ourWindow else { return }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                let othersRemain = NSApp.windows.contains { $0 !== self.ourWindow && $0.isVisible }
-                if !othersRemain { self.ourWindow?.level = .floating }
-            }
-        }
-        windowObservers = [mini, demini, auxKey, auxClose]
+        windowObservers = [mini, demini]
     }
 
     // MARK: - Window attachment / positioning
@@ -248,7 +228,7 @@ final class AppController: @unchecked Sendable {
             guard isAttached else { return }
             isAttached = false
             ourWindow?.level = .normal
-            ourWindow?.orderFrontRegardless()
+            ourWindow?.orderBack(nil)
             return
         }
         vphoneDetected = true
@@ -261,7 +241,7 @@ final class AppController: @unchecked Sendable {
         }
         if let app { maximizeVphoneWindow(pid: app.processIdentifier, frame: vphoneFrame) }
         if autoAttachEnabled {
-            if !isAttached { ourWindow?.orderFront(nil) }
+            if !isAttached, app?.isActive == true { ourWindow?.orderFront(nil) }
             positionBeside(vphoneFrame)
         } else {
             markAttached()

@@ -263,7 +263,7 @@ struct ContentView: View {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = false
         window.titlebarSeparatorStyle = .line
-        window.level = .floating
+        window.level = .normal
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         // Only matters when auto-attach is off (positionBeside overrides the origin every
         // poll tick otherwise) — restores wherever the window was last manually dragged to
