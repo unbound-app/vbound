@@ -9,6 +9,13 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-07-29
+
+### Fixed
+
+- Addon deployment, retry, and failure logs now use the same manifest ID as
+  addon build logs.
+
 ## [1.2.0] - 2026-07-29
 
 ### Changed

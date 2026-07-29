@@ -1,6 +1,16 @@
 import AppKit
 import UserNotifications
 
+private struct PluginDistribution {
+    let name: String
+    let label: String
+    let path: String
+}
+
+private struct PluginManifest: Decodable {
+    let id: String?
+}
+
 extension AppController {
 
     func toggleTweakBuild(in directory: String) {
@@ -88,7 +98,9 @@ extension AppController {
 
     func retryFailedPlugins() {
         guard !lastFailedPlugins.isEmpty, !buildPhase.isRunning else { return }
-        let toRetry = lastFailedPlugins.map { (name: $0.name, path: $0.path) }
+        let toRetry = lastFailedPlugins.map {
+            PluginDistribution(name: $0.name, label: $0.label, path: $0.path)
+        }
         buildTask = Task { [weak self] in
             guard let self else { return }
             if !isStreaming { startLogStream() }
@@ -100,7 +112,7 @@ extension AppController {
         }
     }
 
-    private func deployPlugins(_ pluginDists: [(name: String, path: String)]) async {
+    private func deployPlugins(_ pluginDists: [PluginDistribution]) async {
         activeProcesses = []
         buildProgress = 0
         buildLog = "Deploying 0 of \(pluginDists.count) addons…"
@@ -109,18 +121,20 @@ extension AppController {
         }
         guard !Task.isCancelled else { return }
 
-        var results: [(name: String, path: String, ok: Bool)] = []
+        var results: [(plugin: PluginDistribution, ok: Bool)] = []
         for (index, plugin) in pluginDists.enumerated() {
             guard !Task.isCancelled else { return }
-            buildLog = "Deploying addon \(index + 1)/\(pluginDists.count): \(plugin.name)"
-            let ok = await deployOnePlugin(name: plugin.name, distPath: plugin.path)
-            results.append((plugin.name, plugin.path, ok))
+            buildLog = "Deploying addon \(index + 1)/\(pluginDists.count): \(plugin.label)"
+            let ok = await deployOnePlugin(name: plugin.name, label: plugin.label, distPath: plugin.path)
+            results.append((plugin, ok))
             buildProgress = Double(results.count) / Double(pluginDists.count)
         }
         guard !Task.isCancelled else { return }
 
-        let succeededNames = results.filter(\.ok).map(\.name)
-        let failed = results.filter { !$0.ok }.map { FailedPlugin(name: $0.name, path: $0.path) }
+        let succeededNames = results.filter(\.ok).map(\.plugin.label)
+        let failed = results.filter { !$0.ok }.map {
+            FailedPlugin(name: $0.plugin.name, label: $0.plugin.label, path: $0.plugin.path)
+        }
         lastFailedPlugins = failed
 
         guard !succeededNames.isEmpty else {
@@ -144,7 +158,7 @@ extension AppController {
             notifyBuildCompletion(target: "Addons", succeeded: true, message: "All addons deployed.")
             scheduleReset()
         } else {
-            let names = failed.map(\.name).joined(separator: ", ")
+            let names = failed.map(\.label).joined(separator: ", ")
             buildPhase = .failed("Deployed \(succeededNames.count)/\(pluginDists.count) addons — failed: \(names)")
             buildLog = ""; buildProgress = 0
             playBuildSound(success: false)
@@ -167,11 +181,11 @@ extension AppController {
         return false
     }
 
-    private func deployOnePlugin(name: String, distPath: String) async -> Bool {
+    private func deployOnePlugin(name: String, label: String, distPath: String) async -> Bool {
         for attempt in 1...3 {
             guard !Task.isCancelled else { return false }
             if attempt > 1 {
-                buildLog = "Retrying addon \(name) (\(attempt)/3)…"
+                buildLog = "Retrying addon \(label) (\(attempt)/3)…"
                 await closeSSHControlMaster()
                 guard await ensurePortForward(), await primeSSHControlMaster() else { continue }
                 try? await Task.sleep(for: .milliseconds(700))
@@ -516,15 +530,22 @@ extension AppController {
             .max    { modificationDate($0) < modificationDate($1) }
     }
 
-    private func findPluginDists(in directory: String) -> [(name: String, path: String)] {
+    private func findPluginDists(in directory: String) -> [PluginDistribution] {
         pluginDirectories(in: directory).compactMap { pluginDirectory in
             let distDirectory = pluginDirectory.appending(path: "dist")
             guard (try? distDirectory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
                 return nil
             }
-            return (pluginDirectory.lastPathComponent, distDirectory.path)
+            let name = pluginDirectory.lastPathComponent
+            let manifestURL = distDirectory.appending(path: "manifest.json")
+            let manifest = try? JSONDecoder().decode(PluginManifest.self, from: Data(contentsOf: manifestURL))
+            let label = manifest?.id?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let label, !label.isEmpty else {
+                return PluginDistribution(name: name, label: name, path: distDirectory.path)
+            }
+            return PluginDistribution(name: name, label: label, path: distDirectory.path)
         }
-        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        .sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
     }
 
     private func findAddonNames(in directory: String) -> [String] {

@@ -227,6 +227,7 @@ struct BuildResultSummary: Equatable {
 
 struct FailedPlugin: Equatable {
     let name: String
+    let label: String
     let path: String
 }
 
