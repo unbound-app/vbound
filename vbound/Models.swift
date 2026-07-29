@@ -229,6 +229,7 @@ struct FailedPlugin: Equatable {
     let name: String
     let label: String
     let path: String
+    let sourceFingerprint: String
 }
 
 struct VphoneDevice: Identifiable, Equatable {

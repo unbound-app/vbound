@@ -1,14 +1,32 @@
 import AppKit
+import CryptoKit
 import UserNotifications
 
 private struct PluginDistribution {
     let name: String
     let label: String
     let path: String
+    let sourceFingerprint: String
+}
+
+private struct PluginSource {
+    let name: String
+    let label: String
+    let path: String
+    let sourceFingerprint: String
+}
+
+private struct DeployedPlugin {
+    let sourceFingerprint: String?
 }
 
 private struct PluginManifest: Decodable {
     let id: String?
+}
+
+private struct AddonWorkspaceConfig: Decodable {
+    let build: String?
+    let output: String?
 }
 
 extension AppController {
@@ -37,59 +55,50 @@ extension AppController {
             if !isStreaming { startLogStream() }
 
             let dirPath = (directory as NSString).expandingTildeInPath
-            let addonNames = findAddonNames(in: dirPath)
             lastPluginsWorkDir = dirPath
             lastFailedPlugins = []
             buildLog = ""; buildLogFull = ""; buildProgress = 0; buildPhase = .buildingPlugins; activeBuildTarget = .plugins
-            var buildFailureLines: [String] = []
-            var builtAddonNames = Set<String>()
-            var skippedAddonNames = Set<String>()
-            let built = await run(args: [
-                "/bin/zsh", "-l", "-c",
-                "cd \(Self.shellQuoted(dirPath)) && bunx ubd build 2>&1"
-            ], onLaunch: { [weak self] p in self?.buildProcess = p }) { [weak self] lines in
-                guard let self else { return }
-                for raw in lines {
-                    let line = Self.strippingANSI(raw)
-                    appendBuildLog(line)
-                    if Self.looksLikeBuildFailure(line) { buildFailureLines.append(line) }
-                    if let name = Self.addonBuildStarting(in: line) {
-                        let position = min(builtAddonNames.count + skippedAddonNames.count + 1, max(addonNames.count, 1))
-                        buildLog = "Building addon \(position)/\(max(addonNames.count, 1)): \(name)"
-                    } else if let name = Self.addonBuildFinished(in: line) {
-                        builtAddonNames.insert(name)
-                        if !addonNames.isEmpty {
-                            let completed = builtAddonNames.count + skippedAddonNames.count
-                            buildProgress = Double(completed) / Double(addonNames.count)
-                            buildLog = "Built addon \(completed)/\(addonNames.count): \(name)"
-                        } else {
-                            buildLog = "Built addon: \(name)"
-                        }
-                    } else if let name = Self.addonBuildSkipped(in: line) {
-                        skippedAddonNames.insert(name)
-                        if !addonNames.isEmpty {
-                            let completed = builtAddonNames.count + skippedAddonNames.count
-                            buildProgress = Double(completed) / Double(addonNames.count)
-                            buildLog = "Skipped static addon \(completed)/\(addonNames.count): \(name)"
-                        } else {
-                            buildLog = "Skipped static addon: \(name)"
-                        }
-                    } else if line == "All addons built." {
-                        buildProgress = 1
-                        buildLog = "Built \(builtAddonNames.count) addon(s), skipped \(skippedAddonNames.count) static"
-                    }
-                }
-            }
-            guard built else {
-                return fail(Self.buildFailureMessage(prefix: "Addon build failed", from: buildFailureLines))
-            }
-            guard !Task.isCancelled else { return }
-
-            let pluginDists = findPluginDists(in: dirPath)
-            guard !pluginDists.isEmpty else { return fail("No addon dist folders found") }
-
             guard await ensurePortForward() else { return fail("Could not connect to vphone over SSH") }
             guard !Task.isCancelled else { return }
+
+            guard let workspaceConfig = addonWorkspaceConfig(in: dirPath) else {
+                return fail("Could not read unbound.config.json")
+            }
+            guard var deployedPlugins = await deployedPlugins() else {
+                return fail("Could not read deployed addon state")
+            }
+            let outputDirectory = workspaceConfig.output ?? "dist"
+            let sources = findPluginSources(in: dirPath, outputDirectory: outputDirectory)
+            guard !sources.isEmpty else { return fail("No addon folders found") }
+            let sourcesToAdopt = sources.filter {
+                deployedPlugins[$0.name].map { $0.sourceFingerprint == nil } ?? false
+            }
+            if !sourcesToAdopt.isEmpty {
+                guard await adoptPluginFingerprints(sourcesToAdopt) else {
+                    return fail("Could not register deployed addons")
+                }
+                for source in sourcesToAdopt {
+                    deployedPlugins[source.name] = DeployedPlugin(sourceFingerprint: source.sourceFingerprint)
+                }
+            }
+            let changedSources = sources.filter {
+                deployedPlugins[$0.name]?.sourceFingerprint != $0.sourceFingerprint
+            }
+            guard !changedSources.isEmpty else {
+                return await restartDiscordAfterAddonDeployment(message: "All addons are already deployed.")
+            }
+
+            let built = await buildChangedPlugins(changedSources, command: workspaceConfig.build ?? "bun run build")
+            guard built else { return }
+            guard !Task.isCancelled else { return }
+
+            let pluginDists = pluginDistributions(
+                from: changedSources,
+                outputDirectory: outputDirectory
+            )
+            guard pluginDists.count == changedSources.count else {
+                return fail("A changed addon did not produce a dist folder")
+            }
 
             buildPhase = .deployingPlugins
             await deployPlugins(pluginDists)
@@ -99,7 +108,12 @@ extension AppController {
     func retryFailedPlugins() {
         guard !lastFailedPlugins.isEmpty, !buildPhase.isRunning else { return }
         let toRetry = lastFailedPlugins.map {
-            PluginDistribution(name: $0.name, label: $0.label, path: $0.path)
+            PluginDistribution(
+                name: $0.name,
+                label: $0.label,
+                path: $0.path,
+                sourceFingerprint: $0.sourceFingerprint
+            )
         }
         buildTask = Task { [weak self] in
             guard let self else { return }
@@ -125,7 +139,12 @@ extension AppController {
         for (index, plugin) in pluginDists.enumerated() {
             guard !Task.isCancelled else { return }
             buildLog = "Deploying addon \(index + 1)/\(pluginDists.count): \(plugin.label)"
-            let ok = await deployOnePlugin(name: plugin.name, label: plugin.label, distPath: plugin.path)
+            let ok = await deployOnePlugin(
+                name: plugin.name,
+                label: plugin.label,
+                distPath: plugin.path,
+                sourceFingerprint: plugin.sourceFingerprint
+            )
             results.append((plugin, ok))
             buildProgress = Double(results.count) / Double(pluginDists.count)
         }
@@ -133,7 +152,12 @@ extension AppController {
 
         let succeededNames = results.filter(\.ok).map(\.plugin.label)
         let failed = results.filter { !$0.ok }.map {
-            FailedPlugin(name: $0.plugin.name, label: $0.plugin.label, path: $0.plugin.path)
+            FailedPlugin(
+                name: $0.plugin.name,
+                label: $0.plugin.label,
+                path: $0.plugin.path,
+                sourceFingerprint: $0.plugin.sourceFingerprint
+            )
         }
         lastFailedPlugins = failed
 
@@ -143,20 +167,8 @@ extension AppController {
                 : "Addon deployment failed")
         }
 
-        buildPhase = .restarting
-        let restarted = await runBuildSSH(
-            "echo '\(sshPassword)' | sudo -S killall -9 Discord; uiopen --bundleid com.hammerandchisel.discord",
-            label: "restarting Discord"
-        )
-        guard !Task.isCancelled else { return }
-        guard restarted else { return fail("Discord restart failed") }
-
-        lastAddonsResult = BuildResultSummary(succeeded: failed.isEmpty, date: Date())
         if failed.isEmpty {
-            buildPhase = .pluginsDeployed; buildLog = ""; buildProgress = 0
-            playBuildSound(success: true)
-            notifyBuildCompletion(target: "Addons", succeeded: true, message: "All addons deployed.")
-            scheduleReset()
+            await restartDiscordAfterAddonDeployment(message: "All addons deployed.")
         } else {
             let names = failed.map(\.label).joined(separator: ", ")
             buildPhase = .failed("Deployed \(succeededNames.count)/\(pluginDists.count) addons — failed: \(names)")
@@ -181,7 +193,12 @@ extension AppController {
         return false
     }
 
-    private func deployOnePlugin(name: String, label: String, distPath: String) async -> Bool {
+    private func deployOnePlugin(
+        name: String,
+        label: String,
+        distPath: String,
+        sourceFingerprint: String
+    ) async -> Bool {
         for attempt in 1...3 {
             guard !Task.isCancelled else { return false }
             if attempt > 1 {
@@ -209,7 +226,11 @@ extension AppController {
             guard uploaded, !Task.isCancelled else { continue }
 
             let deployed = await run(
-                ssh: pluginDeploymentCommand(name: name, stagingPath: stagingPath),
+                ssh: pluginDeploymentCommand(
+                    name: name,
+                    stagingPath: stagingPath,
+                    sourceFingerprint: sourceFingerprint
+                ),
                 timeout: 30,
                 onLaunch: { [weak self] p in self?.activeProcesses.append(p) }
             )
@@ -530,28 +551,74 @@ extension AppController {
             .max    { modificationDate($0) < modificationDate($1) }
     }
 
-    private func findPluginDists(in directory: String) -> [PluginDistribution] {
-        pluginDirectories(in: directory).compactMap { pluginDirectory in
-            let distDirectory = pluginDirectory.appending(path: "dist")
-            guard (try? distDirectory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
-                return nil
-            }
+    private func addonWorkspaceConfig(in directory: String) -> AddonWorkspaceConfig? {
+        let configURL = URL(fileURLWithPath: directory).appending(path: "unbound.config.json")
+        guard let data = try? Data(contentsOf: configURL) else { return nil }
+        return try? JSONDecoder().decode(AddonWorkspaceConfig.self, from: data)
+    }
+
+    private func findPluginSources(in directory: String, outputDirectory: String) -> [PluginSource] {
+        let workspaceDirectory = URL(fileURLWithPath: directory)
+        return pluginDirectories(in: directory).compactMap { pluginDirectory in
+            let manifestURL = pluginDirectory.appending(path: "manifest.json")
+            guard FileManager.default.fileExists(atPath: manifestURL.path),
+                  let sourceFingerprint = Self.addonSourceFingerprint(
+                    at: pluginDirectory,
+                    workspaceDirectory: workspaceDirectory,
+                    outputDirectory: outputDirectory
+                  )
+            else { return nil }
             let name = pluginDirectory.lastPathComponent
-            let manifestURL = distDirectory.appending(path: "manifest.json")
             let manifest = try? JSONDecoder().decode(PluginManifest.self, from: Data(contentsOf: manifestURL))
-            let label = manifest?.id?.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let label, !label.isEmpty else {
-                return PluginDistribution(name: name, label: name, path: distDirectory.path)
-            }
-            return PluginDistribution(name: name, label: label, path: distDirectory.path)
+            let manifestID = manifest?.id?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = (manifestID?.isEmpty == false) ? manifestID! : name
+            return PluginSource(name: name, label: label, path: pluginDirectory.path, sourceFingerprint: sourceFingerprint)
         }
         .sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
     }
 
-    private func findAddonNames(in directory: String) -> [String] {
-        pluginDirectories(in: directory)
-            .filter { FileManager.default.fileExists(atPath: $0.appending(path: "manifest.json").path) }
-            .map(\.lastPathComponent)
+    private func buildChangedPlugins(_ sources: [PluginSource], command: String) async -> Bool {
+        for (index, source) in sources.enumerated() {
+            guard !Task.isCancelled else { return false }
+            buildLog = "Building addon \(index + 1)/\(sources.count): \(source.label)"
+            var failureLines: [String] = []
+            let built = await run(args: [
+                "/bin/zsh", "-l", "-c",
+                "cd \(Self.shellQuoted(source.path)) && \(command) 2>&1"
+            ], onLaunch: { [weak self] process in self?.buildProcess = process }) { [weak self] lines in
+                guard let self else { return }
+                for raw in lines {
+                    let line = Self.strippingANSI(raw)
+                    appendBuildLog(line)
+                    if Self.looksLikeBuildFailure(line) { failureLines.append(line) }
+                    buildLog = line
+                }
+            }
+            guard built else {
+                fail(Self.buildFailureMessage(prefix: "Addon build failed: \(source.label)", from: failureLines))
+                return false
+            }
+            buildProgress = Double(index + 1) / Double(sources.count) * 0.5
+        }
+        return true
+    }
+
+    private func pluginDistributions(
+        from sources: [PluginSource],
+        outputDirectory: String
+    ) -> [PluginDistribution] {
+        sources.compactMap { source in
+            let output = URL(fileURLWithPath: source.path).appending(path: outputDirectory)
+            guard (try? output.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
+                return nil
+            }
+            return PluginDistribution(
+                name: source.name,
+                label: source.label,
+                path: output.path,
+                sourceFingerprint: source.sourceFingerprint
+            )
+        }
     }
 
     private func pluginDirectories(in directory: String) -> [URL] {
@@ -566,23 +633,140 @@ extension AppController {
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
     }
 
-    private nonisolated static func addonBuildStarting(in line: String) -> String? {
-        guard line.hasPrefix("Building "), line.hasSuffix("…") else { return nil }
-        return String(line.dropFirst("Building ".count).dropLast())
+    private func restartDiscordAfterAddonDeployment(message: String) async {
+        buildPhase = .restarting
+        let restarted = await runBuildSSH(
+            "echo '\(sshPassword)' | sudo -S killall -9 Discord; uiopen --bundleid com.hammerandchisel.discord",
+            label: "restarting Discord"
+        )
+        guard !Task.isCancelled else { return }
+        guard restarted else { return fail("Discord restart failed") }
+        lastAddonsResult = BuildResultSummary(succeeded: true, date: Date())
+        buildPhase = .pluginsDeployed; buildLog = ""; buildProgress = 0
+        playBuildSound(success: true)
+        notifyBuildCompletion(target: "Addons", succeeded: true, message: message)
+        scheduleReset()
     }
 
-    private nonisolated static func addonBuildFinished(in line: String) -> String? {
-        guard line.hasPrefix("Built "), line.hasSuffix(".") else { return nil }
-        return String(line.dropFirst("Built ".count).dropLast())
+    private func deployedPlugins() async -> [String: DeployedPlugin]? {
+        let script = """
+        metadata="$(grep -l -m 1 'com.hammerandchisel.discord' /private/var/mobile/Containers/Data/Application/*/.com.apple.mobile_container_manager.metadata.plist 2>/dev/null | head -n 1)"
+        [ -n "$metadata" ] || exit 1
+        container="$(dirname "$metadata")"
+        plugins="$container/Documents/Unbound/Plugins"
+        [ -d "$plugins" ] || exit 0
+        for plugin in "$plugins"/*; do
+          [ -d "$plugin" ] || continue
+          fingerprint="$plugin/.vbound-source-sha256"
+          value=""
+          [ -f "$fingerprint" ] && value="$(cat "$fingerprint")"
+          printf '%s\\t%s\\n' "$(basename "$plugin")" "$value"
+        done
+        """
+        let result = await runCapturingOutput(
+            args: sshArguments(for: rootShellCommand(script)),
+            timeout: 30,
+            onLaunch: { [weak self] process in self?.buildProcess = process }
+        )
+        guard result.ok else { return nil }
+        return Dictionary(uniqueKeysWithValues: result.output
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line in
+                let parts = line.split(
+                    separator: "\t",
+                    maxSplits: 1,
+                    omittingEmptySubsequences: false
+                ).map(String.init)
+                guard parts.count == 2, !parts[0].isEmpty else { return nil }
+                let fingerprint = parts[1].isEmpty ? nil : parts[1]
+                return (parts[0], DeployedPlugin(sourceFingerprint: fingerprint))
+            })
     }
 
-    private nonisolated static func addonBuildSkipped(in line: String) -> String? {
-        let suffix = " (static addon)."
-        guard line.hasPrefix("Skipping "), line.hasSuffix(suffix) else { return nil }
-        return String(line.dropFirst("Skipping ".count).dropLast(suffix.count))
+    private func adoptPluginFingerprints(_ sources: [PluginSource]) async -> Bool {
+        let writes = sources.map {
+            "printf '%s\\n' \(Self.shellQuoted($0.sourceFingerprint)) > \"$plugins\"/\(Self.shellQuoted($0.name))/.vbound-source-sha256"
+        }.joined(separator: "\n")
+        let script = """
+        metadata="$(grep -l -m 1 'com.hammerandchisel.discord' /private/var/mobile/Containers/Data/Application/*/.com.apple.mobile_container_manager.metadata.plist 2>/dev/null | head -n 1)"
+        [ -n "$metadata" ] || exit 1
+        container="$(dirname "$metadata")"
+        plugins="$container/Documents/Unbound/Plugins"
+        \(writes)
+        """
+        return await run(
+            ssh: rootShellCommand(script),
+            timeout: 30,
+            onLaunch: { [weak self] process in self?.buildProcess = process }
+        )
     }
 
-    private func pluginDeploymentCommand(name: String, stagingPath: String) -> String {
+    private func sshArguments(for command: String) -> [String] {
+        [
+            "sshpass", "-p", sshPassword,
+            "ssh",
+            "-p", "2222",
+            "-o", "ConnectTimeout=5",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "PubkeyAuthentication=no",
+            "-o", "ControlMaster=auto",
+            "-o", "ControlPath=\(sshControlPath)",
+            "-o", "ControlPersist=60",
+            "mobile@127.0.0.1",
+            command
+        ]
+    }
+
+    private func rootShellCommand(_ script: String) -> String {
+        let encodedScript = Data(script.utf8).base64EncodedString()
+        return "{ printf '%s\\n' \(Self.shellQuoted(sshPassword)); "
+             + "printf '%s' \(Self.shellQuoted(encodedScript)) | /var/jb/usr/bin/base64 -d; "
+             + "} | sudo -S /var/jb/usr/bin/sh"
+    }
+
+    private nonisolated static func addonSourceFingerprint(
+        at sourceDirectory: URL,
+        workspaceDirectory: URL,
+        outputDirectory: String
+    ) -> String? {
+        var fileURLs: [URL] = []
+        guard let enumerator = FileManager.default.enumerator(
+            at: sourceDirectory,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
+            options: []
+        ) else { return nil }
+        let ignoredDirectories: Set<String> = [outputDirectory, "node_modules", ".git"]
+        for case let fileURL as URL in enumerator {
+            let values = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+            if values?.isDirectory == true, ignoredDirectories.contains(fileURL.lastPathComponent) {
+                enumerator.skipDescendants()
+                continue
+            }
+            if values?.isRegularFile == true { fileURLs.append(fileURL) }
+        }
+        for name in ["unbound.config.json", "package.json", "bun.lock"] {
+            let fileURL = workspaceDirectory.appending(path: name)
+            if FileManager.default.fileExists(atPath: fileURL.path) { fileURLs.append(fileURL) }
+        }
+        var hasher = SHA256()
+        for fileURL in fileURLs.sorted(by: { $0.path < $1.path }) {
+            guard let contents = try? Data(contentsOf: fileURL) else { return nil }
+            let relativePath: String
+            if fileURL.path.hasPrefix(sourceDirectory.path + "/") {
+                relativePath = String(fileURL.path.dropFirst(sourceDirectory.path.count + 1))
+            } else {
+                relativePath = "workspace/\(fileURL.lastPathComponent)"
+            }
+            hasher.update(data: Data(relativePath.utf8))
+            hasher.update(data: Data([0]))
+            hasher.update(data: contents)
+            hasher.update(data: Data([0]))
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func pluginDeploymentCommand(name: String, stagingPath: String, sourceFingerprint: String) -> String {
         let script = """
         metadata="$(grep -l -m 1 'com.hammerandchisel.discord' /private/var/mobile/Containers/Data/Application/*/.com.apple.mobile_container_manager.metadata.plist 2>/dev/null | head -n 1)"
         [ -n "$metadata" ] || exit 1
@@ -591,11 +775,9 @@ extension AppController {
         mkdir -p "$plugins"
         rm -rf "$plugins"/\(Self.shellQuoted(name))
         mv \(Self.shellQuoted(stagingPath)) "$plugins"/\(Self.shellQuoted(name))
+        printf '%s\\n' \(Self.shellQuoted(sourceFingerprint)) > "$plugins"/\(Self.shellQuoted(name))/.vbound-source-sha256
         """
-        let encodedScript = Data(script.utf8).base64EncodedString()
-        return "{ printf '%s\\n' \(Self.shellQuoted(sshPassword)); "
-             + "printf '%s' \(Self.shellQuoted(encodedScript)) | /var/jb/usr/bin/base64 -d; "
-             + "} | sudo -S /var/jb/usr/bin/sh"
+        return rootShellCommand(script)
     }
 
     // Not private: AppController+Mount.swift's root-sftp provisioning script needs the
