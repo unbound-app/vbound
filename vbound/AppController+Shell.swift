@@ -57,6 +57,10 @@ extension AppController {
         isShellConnecting = false
     }
 
+    func clearEmbeddedTerminal() {
+        embeddedTerminal?.send([0x0C])
+    }
+
     func connectShell() {
         // Also guards against double-invocation while already mid-handshake — without
         // isShellConnecting here, a second click before isShellConnected flips true would

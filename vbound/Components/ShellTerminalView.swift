@@ -10,6 +10,10 @@ struct ShellTerminalView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
+        if let terminal = manager.embeddedTerminal {
+            terminal.processDelegate = context.coordinator
+            return terminal
+        }
         let terminal = LocalProcessTerminalView(frame: .zero)
         terminal.processDelegate = context.coordinator
         context.coordinator.start(terminal)
@@ -19,8 +23,6 @@ struct ShellTerminalView: NSViewRepresentable {
     func updateNSView(_ terminal: LocalProcessTerminalView, context: Context) {}
 
     static func dismantleNSView(_ terminal: LocalProcessTerminalView, coordinator: Coordinator) {
-        coordinator.manager.embeddedTerminal = nil
-        terminal.terminate()
     }
 
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {

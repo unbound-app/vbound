@@ -156,6 +156,7 @@ struct ContentView: View {
     @State private var shellInput           = ""
     @State private var shellScrollVersion   = 0
     @State private var shellAutoScroll      = true
+    @State private var shellTerminalSessionID = UUID()
     @State private var unboundUnread     : UnreadLevel = .none
     @State private var reactNativeUnread : UnreadLevel = .none
     @State private var shellHistory      : [String] = []
@@ -397,54 +398,18 @@ struct ContentView: View {
 
         ToolbarItem(placement: .primaryAction) {
             Button {
-                copyShellOutput()
+                manager.clearEmbeddedTerminal()
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: "doc.on.doc")
-                    Text("Copy")
-                }
-                .padding(.horizontal, 2)
-            }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
-            .disabled(manager.shellLines.isEmpty)
-            .help("Copy shell output")
-        }
-
-        ToolbarSpacer(.fixed, placement: .primaryAction)
-
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                clearConsole()
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "trash")
+                    Image(systemName: "arrow.counterclockwise")
                     Text("Clear")
                 }
                 .padding(.horizontal, 2)
             }
             .buttonStyle(.bordered)
             .buttonBorderShape(.capsule)
-            .disabled(manager.shellLines.isEmpty)
-            .help("Clear terminal output")
-        }
-
-        ToolbarSpacer(.fixed, placement: .primaryAction)
-
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                saveVisibleOutputToFile()
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "square.and.arrow.down")
-                    Text("Export")
-                }
-                .padding(.horizontal, 2)
-            }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
-            .disabled(manager.shellLines.isEmpty)
-            .help("Export shell output")
+            .disabled(!manager.isShellConnected)
+            .help("Clear the terminal screen")
         }
 
         ToolbarSpacer(.fixed, placement: .primaryAction)
@@ -1144,7 +1109,30 @@ struct ContentView: View {
 
     @ViewBuilder
     private var shellView: some View {
-        ShellTerminalView(manager: manager)
+        ZStack {
+            ShellTerminalView(manager: manager)
+                .id(shellTerminalSessionID)
+            if !manager.isShellConnected {
+                VStack(spacing: 10) {
+                    if manager.isShellConnecting {
+                        ProgressView()
+                            .controlSize(.regular)
+                        Text("Connecting to vphone…")
+                    } else {
+                        Image(systemName: "terminal")
+                            .font(.system(size: 24))
+                        Text("Terminal is offline")
+                        Button("Reconnect") {
+                            manager.disconnectShell()
+                            shellTerminalSessionID = UUID()
+                        }
+                    }
+                }
+                .foregroundStyle(.secondary)
+                .padding(24)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
     }
 
     private var legacyShellView: some View {
