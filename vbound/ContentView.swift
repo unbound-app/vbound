@@ -144,7 +144,6 @@ struct ContentView: View {
     @State private var scrollToBookmarkID: LogEntry.ID? = nil
     @State private var showBookmarks = false
     @State private var showCommandPalette = false
-    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var showOnboarding = false
     // Resets to true each launch/attach — auto-follow is the expected default, not a
     // sticky "stay off forever" preference (#18).
@@ -179,8 +178,7 @@ struct ContentView: View {
         .background(WindowAccessor(callback: configureWindow))
         .toolbar { windowToolbar }
         .onAppear {
-            guard !hasCompletedOnboarding else { return }
-            showOnboarding = true
+            showOnboarding = AppController.setupRequired()
         }
         .overlay {
             if showOnboarding {
@@ -510,14 +508,16 @@ struct ContentView: View {
                 .disabled(manager.buildPhase.isRunning)
             }
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 5) {
                 Circle()
                     .fill(manager.vphoneDetected ? Color.green : Color.secondary.opacity(0.35))
                     .frame(width: 8, height: 8)
                 Text(statusText)
-                    .font(.system(size: 11))
             }
+            .padding(.horizontal, 2)
         }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
         .help(statusHelpText)
         .confirmationDialog("Shut down vphone?", isPresented: $showShutdownConfirm) {
             Button("Shut Down", role: .destructive) { manager.shutdownVphone() }
@@ -1441,16 +1441,11 @@ struct ContentView: View {
         return text.count > 48 ? String(text.prefix(48)) + "…" : text
     }
 
-    // Shortened from "Attached · vphone running" etc. — the dot already carries the
-    // running/not-running signal, and the fuller phrasing was pushed into a tooltip
-    // instead of staying inline, now that the status strip's buttons take up more
-    // width (regular control size, "Settings" gained a text label) and were truncating
-    // this with an ellipsis.
     private var statusText: String {
         if let message = manager.lastShutdownMessage { return message }
         if manager.lastShutdownError != nil { return "Shutdown Failed" }
         if manager.isShuttingDown { return "Shutting Down" }
-        if manager.isAttached     { return "Attached" }
+        if manager.isAttached     { return "Attached · Running" }
         if manager.vphoneDetected { return "Running" }
         return "Not Running"
     }

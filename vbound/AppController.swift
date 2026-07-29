@@ -147,6 +147,20 @@ final class AppController: @unchecked Sendable {
         }
     }
 
+    static func setupRequired() -> Bool {
+        let defaults = UserDefaults.standard
+        let vmName = (defaults.string(forKey: "vphoneVMName") ?? defaultVphoneVMName)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedVMName = vmName.isEmpty ? defaultVphoneVMName : vmName
+        let legacyVM = NSHomeDirectory() + "/vphone-cli/vm"
+        let homebrewVM = NSHomeDirectory() + "/.vphone/VMs/\(resolvedVMName)"
+        let executable = defaults.string(forKey: "vphoneCliPath") ?? defaultVphoneCLIPath
+        return !executableValid(executable)
+            || !FileManager.default.fileExists(atPath: homebrewVM)
+            || (FileManager.default.fileExists(atPath: legacyVM) && !FileManager.default.fileExists(atPath: homebrewVM))
+            || !MCPInstaller.isInstalled
+    }
+
     // The underlying CGWindowList enumeration in checkAndAttach() — not the timer
     // itself — is the real cost of polling every 100ms for the app's whole lifetime.
     // That cadence only actually matters while the panel is following vphone's window

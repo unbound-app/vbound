@@ -9,6 +9,17 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-29
+
+### Added
+
+- Mandatory guided setup for the Homebrew vphone-cli workflow, including host dependencies, vphone setup, VM creation, and legacy VM migration.
+- A bundled MCP server with VM, device, build, log, shell, migration, setup, and mount controls, installed into Codex and Claude Code from the setup wizard.
+
+### Changed
+
+- The device status control uses the same full-sized capsule treatment as the toolbar quick actions and shows the attached/running state directly.
+
 ## [1.2.1] - 2026-07-29
 
 ### Fixed
