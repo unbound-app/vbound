@@ -413,8 +413,10 @@ final class AppController: @unchecked Sendable {
         let height = width * aspect
         var size = CGSize(width: width, height: height)
         var position = CGPoint(x: visible.minX, y: screen.frame.maxY - visible.maxY)
-        let sizeResult = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, AXValueCreate(.cgSize, &size))
-        let positionResult = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, AXValueCreate(.cgPoint, &position))
+        guard let sizeValue = AXValueCreate(.cgSize, &size),
+              let positionValue = AXValueCreate(.cgPoint, &position) else { return }
+        let sizeResult = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
+        let positionResult = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, positionValue)
         if sizeResult == .success && positionResult == .success { maximizedVphonePID = pid }
     }
 

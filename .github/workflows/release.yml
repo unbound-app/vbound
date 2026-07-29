@@ -69,6 +69,7 @@ jobs:
 
             - name: Archive app
               run: |
+                  set -o pipefail
                   xcodebuild archive \
                     -scheme "${{ steps.project.outputs.scheme }}" \
                     -configuration "Release" \
@@ -83,11 +84,13 @@ jobs:
 
             - name: Export app
               run: |
+                  set -o pipefail
                   xcodebuild -exportArchive \
                     -archivePath "build/${{ steps.project.outputs.app-name }}.xcarchive" \
                     -exportOptionsPlist "ExportOptions.plist" \
                     -exportPath "build/export" \
                     | xcbeautify
+                  test -d "build/export/${{ steps.project.outputs.app-name }}.app"
 
             - name: Notarize and staple app
               run: |

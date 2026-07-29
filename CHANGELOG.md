@@ -9,6 +9,13 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-07-29
+
+### Fixed
+
+- Release builds now fail at the archive/export error instead of continuing to notarization without an app bundle.
+- The vphone window-resize accessibility values compile with Xcode 26.6.
+
 ## [1.4.0] - 2026-07-29
 
 ### Added
