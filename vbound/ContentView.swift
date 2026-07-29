@@ -735,7 +735,10 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.16), value: logAutoScroll)
         .animation(.easeInOut(duration: 0.16), value: shellAutoScroll)
         .onChange(of: activeTab) { _, new in
-            if new == .shell { shellAutoScroll = true }
+            if new == .shell {
+                shellAutoScroll = true
+                manager.connectShell()
+            }
         }
         .background(Color(nsColor: .textBackgroundColor))
     }
@@ -1112,9 +1115,11 @@ struct ContentView: View {
         ZStack {
             ShellTerminalView(
                 manager: manager,
-                shouldConnect: manager.embeddedShellStartRequested || activeTab == .shell
+                shouldConnect: manager.embeddedShellStartRequested
             )
                 .id(shellTerminalSessionID)
+                .background(Color(red: 0.055, green: 0.063, blue: 0.078))
+                .allowsHitTesting(manager.isShellConnected)
             if !manager.isShellConnected {
                 VStack(spacing: 10) {
                     if manager.isShellConnecting {
@@ -1127,7 +1132,12 @@ struct ContentView: View {
                         Text("Terminal is offline")
                         Button("Reconnect") {
                             manager.disconnectShell()
+                            manager.connectShell()
                             shellTerminalSessionID = UUID()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .onHover { isHovering in
+                            isHovering ? NSCursor.pointingHand.set() : NSCursor.arrow.set()
                         }
                     }
                 }
@@ -1255,6 +1265,7 @@ struct ContentView: View {
                     manager.disconnectShell()
                 } else {
                     manager.disconnectShell()
+                    manager.connectShell()
                     shellTerminalSessionID = UUID()
                 }
             }

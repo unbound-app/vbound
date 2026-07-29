@@ -253,7 +253,12 @@ final class AppController: @unchecked Sendable {
         }
         vphoneDetected = true
         isBooting = false
-        ourWindow?.level = app?.isActive == true ? .floating : .normal
+        if app?.isActive == true {
+            ourWindow?.level = .floating
+        } else if !NSApp.isActive {
+            ourWindow?.level = .normal
+            ourWindow?.orderBack(nil)
+        }
         if let app { maximizeVphoneWindow(pid: app.processIdentifier, frame: vphoneFrame) }
         if autoAttachEnabled {
             if !isAttached { ourWindow?.orderFront(nil) }
