@@ -24,6 +24,7 @@ extension AppController {
             "-p 2222",
             "-o StrictHostKeyChecking=no",
             "-o UserKnownHostsFile=/dev/null",
+            "-o LogLevel=ERROR",
             "-o PubkeyAuthentication=no",
             "-o PreferredAuthentications=password,keyboard-interactive",
             "-o PasswordAuthentication=yes",
@@ -62,13 +63,8 @@ extension AppController {
     }
 
     func connectShell() {
-        // Also guards against double-invocation while already mid-handshake — without
-        // isShellConnecting here, a second click before isShellConnected flips true would
-        // spawn a second concurrent ssh process on top of the first.
-        guard !isShellConnected, !isShellConnecting else { return }
-        shellBuffer.reset()
-        shellLines = shellBuffer.lines
-        beginShellConnection()
+        embeddedShellStartRequested = true
+        shellAutoReconnect = true
     }
 
     // Split out from connectShell() so auto-reconnect can re-enter here directly —
@@ -189,6 +185,7 @@ extension AppController {
 
     func disconnectShell() {
         shellAutoReconnect = false  // prevent reconnect on deliberate disconnect (#6)
+        embeddedShellStartRequested = false
         isShellConnecting  = false
         shellProcess?.terminate()
         embeddedTerminal?.terminate()

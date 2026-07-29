@@ -697,39 +697,39 @@ struct ContentView: View {
 
     @ViewBuilder
     private var logsSection: some View {
-        Group {
-            if activeTab == .shell {
-                VStack(spacing: 0) {
-                    shellView
-                    Divider()
-                    shellStatusBar
-                }
-                .transition(.opacity)
-            } else {
-                VStack(spacing: 0) {
-                    logFilterBar
-                    Divider()
-                    logScrollView
-                        .overlay(alignment: .bottomTrailing) {
-                        if !logAutoScroll, !filteredEntries.isEmpty {
-                            Button {
-                                logAutoScroll = true
-                                scrollVersion += 1
-                            } label: {
-                                Label("Jump to Latest", systemImage: "arrow.down.to.line")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                            .padding(16)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                        }
-                    }
-                    .clipped()
-                    Divider()
-                    logStatusBar
-                }
-                .transition(.opacity)
+        ZStack {
+            VStack(spacing: 0) {
+                shellView
+                Divider()
+                shellStatusBar
             }
+            .opacity(activeTab == .shell ? 1 : 0)
+            .allowsHitTesting(activeTab == .shell)
+
+            VStack(spacing: 0) {
+                logFilterBar
+                Divider()
+                logScrollView
+                    .overlay(alignment: .bottomTrailing) {
+                    if !logAutoScroll, !filteredEntries.isEmpty {
+                        Button {
+                            logAutoScroll = true
+                            scrollVersion += 1
+                        } label: {
+                            Label("Jump to Latest", systemImage: "arrow.down.to.line")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .padding(16)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .clipped()
+                Divider()
+                logStatusBar
+            }
+            .opacity(activeTab == .shell ? 0 : 1)
+            .allowsHitTesting(activeTab != .shell)
         }
         .animation(.easeInOut(duration: 0.16), value: activeTab == .shell)
         .animation(.easeInOut(duration: 0.16), value: logAutoScroll)
@@ -1110,7 +1110,10 @@ struct ContentView: View {
     @ViewBuilder
     private var shellView: some View {
         ZStack {
-            ShellTerminalView(manager: manager)
+            ShellTerminalView(
+                manager: manager,
+                shouldConnect: manager.embeddedShellStartRequested || activeTab == .shell
+            )
                 .id(shellTerminalSessionID)
             if !manager.isShellConnected {
                 VStack(spacing: 10) {
@@ -1246,6 +1249,19 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
 
             Spacer()
+
+            Button(manager.isShellConnected ? "Disconnect" : "Connect") {
+                if manager.isShellConnected {
+                    manager.disconnectShell()
+                } else {
+                    manager.disconnectShell()
+                    shellTerminalSessionID = UUID()
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .tint(manager.isShellConnected ? .red : Color.accentColor)
+            .disabled(manager.isShellConnecting)
         }
         .font(.system(size: 11))
         .padding(.horizontal, 12)

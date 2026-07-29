@@ -2,8 +2,10 @@
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
+import time
 
 
 HOME = os.path.expanduser("~")
@@ -11,6 +13,7 @@ VPHONE = os.environ.get("VBOUND_VPHONE_CLI", "/opt/homebrew/bin/vphone-cli")
 VM_NAME = os.environ.get("VBOUND_VM_NAME", "vphone")
 SSH_PASSWORD = os.environ.get("VBOUND_SSH_PASSWORD", "alpine")
 THEOS = os.environ.get("THEOS", os.path.join(HOME, "theos"))
+forward_process = None
 
 
 TOOLS = [
@@ -59,12 +62,45 @@ def device_udid():
         return None, output
     for device in devices:
         if device.get("ProductType") == "iPhone99,11":
-            return device.get("UDID") or device.get("SerialNumber"), ""
+            return device.get("UDID") or device.get("SerialNumber") or device.get("Identifier") or device.get("UniqueDeviceID"), ""
     return None, "No vphone device is connected."
 
 
 def ensure_forward():
-    return command(["pymobiledevice3", "usbmux", "forward", "2222", "22"], timeout=10)
+    global forward_process
+    try:
+        with socket.create_connection(("127.0.0.1", 2222), timeout=1):
+            return True, ""
+    except OSError:
+        pass
+    if forward_process is None or forward_process.poll() is not None:
+        environment = os.environ.copy()
+        environment["THEOS"] = THEOS
+        environment["PATH"] = ":".join([
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/opt/homebrew/opt/coreutils/libexec/gnubin",
+            "/usr/sbin",
+            os.path.join(HOME, ".bun", "bin"),
+            os.path.join(HOME, ".local", "bin"),
+            environment.get("PATH", "/usr/bin:/bin"),
+        ])
+        try:
+            forward_process = subprocess.Popen(
+                ["pymobiledevice3", "usbmux", "forward", "2222", "22"],
+                env=environment,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as error:
+            return False, str(error)
+    for _ in range(20):
+        try:
+            with socket.create_connection(("127.0.0.1", 2222), timeout=1):
+                return True, ""
+        except OSError:
+            time.sleep(0.25)
+    return False, "Could not forward vphone SSH to 127.0.0.1:2222."
 
 
 def ssh(command_text):

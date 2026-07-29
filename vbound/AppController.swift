@@ -71,7 +71,8 @@ final class AppController: @unchecked Sendable {
     var logStreamAutoReconnect = false
     var shellProcess:     Process?
     var shellInputHandle: FileHandle?
-    weak var embeddedTerminal: LocalProcessTerminalView?
+    var embeddedTerminal: LocalProcessTerminalView?
+    var embeddedShellStartRequested = false
     var shellAutoReconnect = false
     var terminatingDelegate: TerminatingWindowDelegate?
 
@@ -252,6 +253,7 @@ final class AppController: @unchecked Sendable {
         }
         vphoneDetected = true
         isBooting = false
+        ourWindow?.level = app?.isActive == true ? .floating : .normal
         if let app { maximizeVphoneWindow(pid: app.processIdentifier, frame: vphoneFrame) }
         if autoAttachEnabled {
             if !isAttached { ourWindow?.orderFront(nil) }
