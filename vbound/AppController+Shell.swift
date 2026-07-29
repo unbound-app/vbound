@@ -16,20 +16,32 @@ extension AppController {
     }
 
     var embeddedShellArguments: [String] {
-        [
-            "sshpass", "-p", sshPassword,
-            "ssh", "-tt",
-            "-p", "2222",
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "PubkeyAuthentication=no",
-            "-o", "ConnectTimeout=5",
-            "-o", "ServerAliveInterval=5",
-            "-o", "ServerAliveCountMax=2",
-            "-o", "ControlMaster=auto",
-            "-o", "ControlPath=\(sshControlPath)",
-            "-o", "ControlPersist=60",
+        let askpass = "#!/bin/sh\nprintf '%s\\n' \(Self.shellQuoted(sshPassword))\n"
+        let encodedAskpass = Data(askpass.utf8).base64EncodedString()
+        let command = [
+            "askpass=$(mktemp /tmp/vbound-askpass.XXXXXX)",
+            "trap 'rm -f \"$askpass\"' EXIT",
+            "printf '%s' \(Self.shellQuoted(encodedAskpass)) | /usr/bin/base64 -D > \"$askpass\"",
+            "chmod 700 \"$askpass\"",
+            "DISPLAY=vbound SSH_ASKPASS=\"$askpass\" SSH_ASKPASS_REQUIRE=force exec ssh",
+            "-tt",
+            "-p 2222",
+            "-o StrictHostKeyChecking=no",
+            "-o UserKnownHostsFile=/dev/null",
+            "-o PubkeyAuthentication=no",
+            "-o PreferredAuthentications=password,keyboard-interactive",
+            "-o PasswordAuthentication=yes",
+            "-o KbdInteractiveAuthentication=yes",
+            "-o ConnectTimeout=5",
+            "-o ServerAliveInterval=5",
+            "-o ServerAliveCountMax=2",
+            "-o ControlMaster=auto",
+            "-o ControlPath=\(sshControlPath)",
+            "-o ControlPersist=60",
             "mobile@127.0.0.1"
+        ].joined(separator: " ")
+        return [
+            "sh", "-c", command
         ]
     }
 
