@@ -1118,7 +1118,7 @@ struct ContentView: View {
                 shouldConnect: manager.embeddedShellStartRequested
             )
                 .id(shellTerminalSessionID)
-                .background(Color(red: 0.055, green: 0.063, blue: 0.078))
+                .background(Color(nsColor: NSColor(calibratedRed: 0.055, green: 0.063, blue: 0.078, alpha: 1)))
                 .allowsHitTesting(manager.isShellConnected)
             if !manager.isShellConnected {
                 VStack(spacing: 10) {
@@ -1136,9 +1136,6 @@ struct ContentView: View {
                             shellTerminalSessionID = UUID()
                         }
                         .buttonStyle(.borderedProminent)
-                        .onHover { isHovering in
-                            isHovering ? NSCursor.pointingHand.set() : NSCursor.arrow.set()
-                        }
                     }
                 }
                 .foregroundStyle(.secondary)

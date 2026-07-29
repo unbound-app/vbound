@@ -18,7 +18,9 @@ struct ShellTerminalView: NSViewRepresentable {
         }
         let terminal = LocalProcessTerminalView(frame: .zero)
         terminal.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        terminal.nativeBackgroundColor = NSColor(calibratedRed: 0.055, green: 0.063, blue: 0.078, alpha: 1)
+        let backgroundColor = NSColor(calibratedRed: 0.055, green: 0.063, blue: 0.078, alpha: 1)
+        terminal.nativeBackgroundColor = backgroundColor
+        terminal.layer?.backgroundColor = backgroundColor.cgColor
         terminal.nativeForegroundColor = NSColor(calibratedRed: 0.9, green: 0.92, blue: 0.96, alpha: 1)
         terminal.useBrightColors = true
         terminal.processDelegate = context.coordinator
