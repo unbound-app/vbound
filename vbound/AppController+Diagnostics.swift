@@ -31,7 +31,7 @@ extension AppController {
         let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
 
         let vphoneCliPath = UserDefaults.standard.string(forKey: "vphoneCliPath")
-            ?? (NSHomeDirectory() + "/vphone-cli")
+            ?? AppController.defaultVphoneCLIPath
         let unboundPath = UserDefaults.standard.string(forKey: "unboundPath")
             ?? (NSHomeDirectory() + "/Developer/loader-ios")
         let unboundPluginsPath = UserDefaults.standard.string(forKey: "unboundPluginsPath")
@@ -48,7 +48,7 @@ extension AppController {
         vbound \(version) (\(build))
         macOS \(osVersion)
 
-        vphone-cli path: \(vphoneCliPath) — \(status(AppController.pathValid(vphoneCliPath)))
+        vphone-cli path: \(vphoneCliPath) — \(status(AppController.executableValid(vphoneCliPath)))
         Unbound Tweak path: \(unboundPath) — \(status(AppController.pathValid(unboundPath)))
         Addon Workspace path: \(unboundPluginsPath) — \(status(AppController.pathValid(unboundPluginsPath)))
 

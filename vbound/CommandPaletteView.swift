@@ -92,7 +92,8 @@ struct CommandPaletteView: View {
     @Environment(AppController.self) private var manager
     @Environment(\.openSettings) private var openSettings
     @Binding var isPresented: Bool
-    @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
+    @AppStorage("vphoneCliPath") private var vphoneCliPath = AppController.defaultVphoneCLIPath
+    @AppStorage("vphoneVMName") private var vphoneVMName = AppController.defaultVphoneVMName
     @AppStorage("unboundPath")   private var unboundPath   = NSHomeDirectory() + "/Developer/loader-ios"
     @AppStorage("unboundPluginsPath") private var unboundPluginsPath = NSHomeDirectory() + "/Developer/unbound-plugins"
     @State private var query = ""
@@ -106,7 +107,7 @@ struct CommandPaletteView: View {
                 if manager.vphoneDetected {
                     NotificationCenter.default.post(name: .requestShutdownVphone, object: nil)
                 } else {
-                    manager.bootVphone(in: vphoneCliPath)
+                    manager.bootVphone(executable: vphoneCliPath, vmName: vphoneVMName)
                 }
             },
             PaletteCommand(title: manager.buildPhase.isRunning && manager.activeBuildTarget == .tweak

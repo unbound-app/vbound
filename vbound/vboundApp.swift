@@ -198,7 +198,8 @@ extension Notification.Name {
 struct vboundApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var manager = AppController()
-    @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
+    @AppStorage("vphoneCliPath") private var vphoneCliPath = AppController.defaultVphoneCLIPath
+    @AppStorage("vphoneVMName") private var vphoneVMName = AppController.defaultVphoneVMName
     @AppStorage("unboundPath")   private var unboundPath   = NSHomeDirectory() + "/Developer/loader-ios"
     @AppStorage("unboundPluginsPath") private var unboundPluginsPath = NSHomeDirectory() + "/Developer/unbound-plugins"
     @AppStorage("autoCheckForUpdates") private var autoCheckForUpdates = true
@@ -279,11 +280,11 @@ struct vboundApp: App {
                     if manager.vphoneDetected {
                         NotificationCenter.default.post(name: .requestShutdownVphone, object: nil)
                     } else {
-                        manager.bootVphone(in: vphoneCliPath)
+                        manager.bootVphone(executable: vphoneCliPath, vmName: vphoneVMName)
                     }
                 }
                 .keyboardShortcut("b", modifiers: .command)
-                .disabled(!manager.vphoneDetected && !AppController.pathValid(vphoneCliPath))
+                .disabled(!manager.vphoneDetected && !AppController.executableValid(vphoneCliPath))
 
                 Button(manager.buildPhase.isRunning && manager.activeBuildTarget == .tweak ? "Cancel Build" : "Build Tweak") {
                     manager.toggleTweakBuild(in: unboundPath)

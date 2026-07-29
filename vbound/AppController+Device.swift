@@ -2,7 +2,7 @@ import AppKit
 
 extension AppController {
 
-    func bootVphone(in directory: String) {
+    func bootVphone(executable: String, vmName: String) {
         // vphoneDetected doesn't flip true until the VM actually finishes booting (which
         // takes a while), and the toolbar button is only disabled by vphoneDetected — a
         // few impatient clicks in that window would otherwise spawn multiple concurrent
@@ -12,11 +12,15 @@ extension AppController {
         bootedVphone = true
         lastShutdownError = nil
         lastShutdownMessage = nil
-        let dirPath = (directory as NSString).expandingTildeInPath
+        let executablePath = (executable as NSString).expandingTildeInPath
+        let trimmedVMName = vmName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard AppController.executableValid(executablePath), !trimmedVMName.isEmpty else {
+            isBooting = false
+            return
+        }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/nohup")
-        p.arguments = ["/usr/bin/make", "boot"]
-        p.currentDirectoryURL = URL(fileURLWithPath: dirPath, isDirectory: true)
+        p.arguments = [executablePath, "vm", "launch", trimmedVMName]
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
         p.environment = enrichedEnvironment

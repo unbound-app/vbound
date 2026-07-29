@@ -1,7 +1,7 @@
 # vbound
 
 > [!NOTE]
-> This is a developer companion tool. It requires [vphone-cli](https://github.com/nickcoutsos/vphone), [loader-ios](https://github.com/unbound-app/loader-ios), and the CLI dependencies listed below to be useful.
+> This is a developer companion tool. It requires [vphone-cli](https://github.com/Lakr233/vphone-cli), [loader-ios](https://github.com/unbound-app/loader-ios), and the CLI dependencies listed below to be useful.
 
 macOS-native workspace that attaches to the vphone window and streamlines Unbound development: boot the virtual device, deploy the tweak and addons over SSH, stream live device logs, and work in an integrated shell.
 
@@ -10,7 +10,7 @@ macOS-native workspace that attaches to the vphone window and streamlines Unboun
 ## Requirements
 
 - macOS 26+
-- [vphone-cli](https://github.com/nickcoutsos/vphone) — virtual iPhone environment
+- [vphone-cli](https://github.com/Lakr233/vphone-cli) — virtual iPhone environment, installed with `brew install zqxwce/tap/vphone-cli`
 - [loader-ios](https://github.com/unbound-app/loader-ios) — Unbound tweak source
 - [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) — `pipx install pymobiledevice3`
 - [sshpass](https://formulae.brew.sh/formula/sshpass) — `brew install sshpass`
@@ -41,7 +41,7 @@ vbound automatically detects the vphone window and attaches its panel to the rig
 
 | Action | Description |
 | --- | --- |
-| **Boot vphone** | Runs `make boot` in the vphone-cli folder |
+| **Boot vphone** | Runs `vphone-cli vm launch <name>` for the configured VM |
 | **Shut Down** | Gracefully shuts down the virtual device via `pymobiledevice3 diagnostics shutdown` |
 | **Discord** | Kills and relaunches Discord on the virtual device |
 | **Tweak** | Builds the tweak (`gmake package`) and deploys it via SSH on port 2222 |

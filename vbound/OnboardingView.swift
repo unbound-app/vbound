@@ -14,7 +14,7 @@ struct OnboardingView: View {
     @Environment(AppController.self) private var manager
     @Binding var isPresented: Bool
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
-    @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
+    @AppStorage("vphoneCliPath") private var vphoneCliPath = AppController.defaultVphoneCLIPath
 
     @State private var checks: [RequirementCheck] = [
         RequirementCheck(title: "vphone-cli", detail: "The configured vphone-cli path exists", optional: false),
@@ -107,7 +107,7 @@ struct OnboardingView: View {
     }
 
     private func runChecks() async {
-        checks[0].status = AppController.pathValid(vphoneCliPath) ? .found : .missing
+        checks[0].status = AppController.executableValid(vphoneCliPath) ? .found : .missing
 
         let pymobiledevice3 = await manager.runCapture(args: ["which", "pymobiledevice3"], timeout: 5)
         checks[1].status = pymobiledevice3.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .missing : .found

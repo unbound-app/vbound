@@ -243,6 +243,7 @@ struct WorkspaceProfile: Codable, Identifiable, Equatable {
     let id: UUID
     var name: String
     var vphoneCliPath: String
+    var vphoneVMName: String?
     var unboundPath: String
     var unboundPluginsPath: String
     var sshPassword: String

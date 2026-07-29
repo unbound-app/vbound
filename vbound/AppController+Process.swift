@@ -21,6 +21,9 @@ nonisolated final class ProcessLineBuffer: @unchecked Sendable {
 
 extension AppController {
 
+    static let defaultVphoneCLIPath = "/opt/homebrew/bin/vphone-cli"
+    static let defaultVphoneVMName = "vphone"
+
     // Device SSH/sudo password — configurable in Settings, defaults to vphone's stock "alpine".
     // Trimmed because a pasted password with a trailing newline/space (easy to pick up
     // from a copied terminal line or text file) would otherwise silently fail SSH/sudo
@@ -33,6 +36,10 @@ extension AppController {
 
     static func pathValid(_ path: String) -> Bool {
         FileManager.default.fileExists(atPath: (path as NSString).expandingTildeInPath)
+    }
+
+    static func executableValid(_ path: String) -> Bool {
+        FileManager.default.isExecutableFile(atPath: (path as NSString).expandingTildeInPath)
     }
 
     var autoAttachEnabled: Bool {

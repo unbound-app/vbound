@@ -9,7 +9,7 @@ struct SettingsView: View {
     // updates/buffers) — deliberately excludes main-window view state like log level
     // filters or merge mode, which a user wouldn't associate with a Settings reset.
     private static let resettableKeys = [
-        "vphoneCliPath", "unboundPath", "unboundPluginsPath", "sshPassword",
+        "vphoneCliPath", "vphoneVMName", "unboundPath", "unboundPluginsPath", "sshPassword",
         "autoAttachEnabled", "autoStartLogStreamEnabled", "autoConnectShellEnabled", "shutdownVphoneOnQuit",
         "autoCheckForUpdates", "updateCheckIntervalHours",
         "logBufferSize", "shellBufferSize",
@@ -78,7 +78,8 @@ struct SettingsView: View {
 
 private struct WorkspaceProfilesSettingsView: View {
     @Environment(AppController.self) private var manager
-    @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
+    @AppStorage("vphoneCliPath") private var vphoneCliPath = AppController.defaultVphoneCLIPath
+    @AppStorage("vphoneVMName") private var vphoneVMName = AppController.defaultVphoneVMName
     @AppStorage("unboundPath") private var unboundPath = NSHomeDirectory() + "/Developer/loader-ios"
     @AppStorage("unboundPluginsPath") private var unboundPluginsPath = NSHomeDirectory() + "/Developer/unbound-plugins"
     @AppStorage("sshPassword") private var sshPassword = ""
@@ -147,6 +148,7 @@ private struct WorkspaceProfilesSettingsView: View {
             id: id,
             name: name,
             vphoneCliPath: vphoneCliPath,
+            vphoneVMName: vphoneVMName,
             unboundPath: unboundPath,
             unboundPluginsPath: unboundPluginsPath,
             sshPassword: sshPassword,
@@ -177,6 +179,7 @@ private struct WorkspaceProfilesSettingsView: View {
 
     private func apply(_ profile: WorkspaceProfile) {
         vphoneCliPath = profile.vphoneCliPath
+        vphoneVMName = profile.vphoneVMName ?? AppController.defaultVphoneVMName
         unboundPath = profile.unboundPath
         unboundPluginsPath = profile.unboundPluginsPath
         sshPassword = profile.sshPassword
@@ -187,7 +190,8 @@ private struct WorkspaceProfilesSettingsView: View {
 
 private struct GeneralSettingsView: View {
     @Environment(AppController.self) private var manager
-    @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
+    @AppStorage("vphoneCliPath") private var vphoneCliPath = AppController.defaultVphoneCLIPath
+    @AppStorage("vphoneVMName") private var vphoneVMName = AppController.defaultVphoneVMName
     @AppStorage("unboundPath")   private var unboundPath   = NSHomeDirectory() + "/Developer/loader-ios"
     @AppStorage("unboundPluginsPath") private var unboundPluginsPath = NSHomeDirectory() + "/Developer/unbound-plugins"
     @AppStorage("sshPassword") private var sshPassword = ""
@@ -205,7 +209,8 @@ private struct GeneralSettingsView: View {
             }
 
             Section("Paths") {
-                FolderPicker(label: "vphone-cli", path: $vphoneCliPath)
+                ExecutablePicker(label: "vphone-cli", path: $vphoneCliPath)
+                TextField("VM Name", text: $vphoneVMName)
                 FolderPicker(label: "Unbound Tweak", path: $unboundPath)
                 FolderPicker(label: "Addon Workspace", path: $unboundPluginsPath)
             }
@@ -375,7 +380,7 @@ private struct ReadinessItem: Identifiable {
 
 private struct ReadinessSettingsView: View {
     @Environment(AppController.self) private var manager
-    @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
+    @AppStorage("vphoneCliPath") private var vphoneCliPath = AppController.defaultVphoneCLIPath
     @AppStorage("unboundPath") private var unboundPath = NSHomeDirectory() + "/Developer/loader-ios"
     @AppStorage("unboundPluginsPath") private var unboundPluginsPath = NSHomeDirectory() + "/Developer/unbound-plugins"
     @State private var items: [ReadinessItem] = []
@@ -454,7 +459,7 @@ private struct ReadinessSettingsView: View {
             let hasMake = hasGmake || hasSystemMake
             let hasUbd = await ubd
             items = [
-                ReadinessItem(id: "vphone", title: "vphone-cli", detail: expandedVphone, isReady: AppController.pathValid(expandedVphone), repairCommand: nil),
+                ReadinessItem(id: "vphone", title: "vphone-cli", detail: expandedVphone, isReady: AppController.executableValid(expandedVphone), repairCommand: nil),
                 ReadinessItem(id: "tweak", title: "Unbound tweak workspace", detail: expandedTweak, isReady: FileManager.default.fileExists(atPath: (expandedTweak as NSString).appendingPathComponent("Makefile")), repairCommand: nil),
                 ReadinessItem(id: "addons", title: "Addon workspace", detail: expandedAddons, isReady: FileManager.default.fileExists(atPath: (expandedAddons as NSString).appendingPathComponent("plugins")), repairCommand: nil),
                 ReadinessItem(id: "pymobiledevice3", title: "pymobiledevice3", detail: hasPymobiledevice3 ? "Ready" : "Required for device discovery and log streaming", isReady: hasPymobiledevice3, repairCommand: "pipx install pymobiledevice3"),

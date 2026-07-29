@@ -9,6 +9,18 @@ Releases before 0.8.0 are documented in their
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-29
+
+### Changed
+
+- vbound now launches Homebrew-installed `vphone-cli` VMs with
+  `vphone-cli vm launch <name>` instead of the retired source-checkout
+  `make boot` workflow.
+- The default executable is `/opt/homebrew/bin/vphone-cli`; Settings now
+  validates the executable and configures the VM name separately.
+- Existing default source-checkout settings automatically migrate when the
+  Homebrew executable is available.
+
 ## [1.1.0] - 2026-07-28
 
 ### Added

@@ -118,6 +118,7 @@ final class AppController: @unchecked Sendable {
 
     func start() {
         guard pollTimer == nil else { return }
+        migrateVphoneConfiguration()
         AppController.current = self
         // Reflects a mount left over from a previous session/crash so the Finder button
         // shows the right state immediately instead of only after the next click.
@@ -132,6 +133,18 @@ final class AppController: @unchecked Sendable {
         pollTimer = t
         setupWindowObservers()
         if globalHotkeyEnabled { enableGlobalHotkey() }
+    }
+
+    private func migrateVphoneConfiguration() {
+        let defaults = UserDefaults.standard
+        let legacyPath = NSHomeDirectory() + "/vphone-cli"
+        if defaults.string(forKey: "vphoneCliPath") == legacyPath,
+           AppController.executableValid(AppController.defaultVphoneCLIPath) {
+            defaults.set(AppController.defaultVphoneCLIPath, forKey: "vphoneCliPath")
+        }
+        if defaults.string(forKey: "vphoneVMName") == nil {
+            defaults.set(AppController.defaultVphoneVMName, forKey: "vphoneVMName")
+        }
     }
 
     // The underlying CGWindowList enumeration in checkAndAttach() — not the timer

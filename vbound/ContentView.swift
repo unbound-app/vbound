@@ -125,7 +125,8 @@ private struct NativeSegmentedControl<Selection: Hashable>: NSViewRepresentable 
 struct ContentView: View {
     @Environment(AppController.self) var manager
     @EnvironmentObject private var appUpdater: AppUpdater
-    @AppStorage("vphoneCliPath") private var vphoneCliPath = NSHomeDirectory() + "/vphone-cli"
+    @AppStorage("vphoneCliPath") private var vphoneCliPath = AppController.defaultVphoneCLIPath
+    @AppStorage("vphoneVMName") private var vphoneVMName = AppController.defaultVphoneVMName
     @AppStorage("unboundPath")   private var unboundPath   = NSHomeDirectory() + "/Developer/loader-ios"
     @AppStorage("unboundPluginsPath") private var unboundPluginsPath = NSHomeDirectory() + "/Developer/unbound-plugins"
     @AppStorage("skippedUpdateVersion") private var skippedUpdateVersion = ""
@@ -478,9 +479,9 @@ struct ContentView: View {
                 .disabled(manager.isShuttingDown)
             } else {
                 Button("Boot vphone") {
-                    manager.bootVphone(in: vphoneCliPath)
+                    manager.bootVphone(executable: vphoneCliPath, vmName: vphoneVMName)
                 }
-                .disabled(manager.isBooting || !pathValid(vphoneCliPath))
+                .disabled(manager.isBooting || !AppController.executableValid(vphoneCliPath))
             }
             if manager.isMounted {
                 Button("Reveal in Finder") { manager.revealMountInFinder() }
@@ -1310,7 +1311,7 @@ struct ContentView: View {
     private var bootHelpText: String {
         if manager.isBooting           { return "Booting…" }
         if manager.vphoneDetected      { return "vphone is already running" }
-        if !pathValid(vphoneCliPath)   { return "vphone-cli path is invalid — check Settings" }
+        if !AppController.executableValid(vphoneCliPath) { return "vphone-cli is unavailable — check Settings" }
         return "Boot vphone"
     }
 
